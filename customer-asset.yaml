@@ -1,0 +1,14 @@
+source:
+  host: localhost
+  port: 8069
+  database: freshfilter_demo
+  user: admin
+  password: admin
+  ssl: yes
+target:
+  host: 192.168.0.103
+  port: 8069
+  database: odoo8etl
+  user: admin
+  password: admin
+  

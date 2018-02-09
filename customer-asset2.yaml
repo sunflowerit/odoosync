@@ -1,0 +1,13 @@
+source:
+  host: localhost
+  port: 8069
+  database: freshfilter_demo
+  user: admin
+  password: admin
+target:
+  host: freshfilter-portal.1systeem.nl
+  port: 443
+  database: freshfilter_portal
+  user: admin
+  password: admin
+  ssl: yes

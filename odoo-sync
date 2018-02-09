@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+
+import netrc
+import odoorpc
+import ssl
+import sys
+import urllib2
+import yaml
+import argparse
+
+from ModelSyncer import ModelSyncer
+
+parser = argparse.ArgumentParser()
+parser.add_argument('yamlfile')
+args = parser.parse_args()
+
+with open(args.yamlfile, 'r') as file:
+    _dict = yaml.load(file)
+    source = _dict.get('source')
+    target = _dict.get('target')
+
+opener = False
+protocol = 'jsonrpc'
+if source.get('ssl', None):
+	ctx = ssl.create_default_context()
+	ctx.check_hostname = False
+	ctx.verify_mode = ssl.CERT_NONE
+	opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
+	protocol='jsonrpc+ssl'
+source_odoo = odoorpc.ODOO(
+	source.get('host'),
+	port=source.get('port'),
+	opener=opener,
+	protocol=protocol
+)
+source_odoo.login(
+	source.get('database'), 
+	source.get('user'), 
+	source.get('password')
+)
+
+opener = False
+protocol = 'jsonrpc'
+if target.get('ssl', None):
+	ctx = ssl.create_default_context()
+	ctx.check_hostname = False
+	ctx.verify_mode = ssl.CERT_NONE
+	opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
+	protocol='jsonrpc+ssl'
+target_odoo = odoorpc.ODOO(
+	target.get('host'), 
+	port=target.get('port'), 
+	opener=opener, 
+	protocol=protocol
+)
+target_odoo.login(
+	target.get('database'), 
+	target.get('user'), 
+	target.get('password')
+)
+
+instance = ModelSyncer(source_odoo, target_odoo)
+instance.sync('customer_asset.asset')
