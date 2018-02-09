@@ -61,3 +61,10 @@ target_odoo.login(
 
 instance = ModelSyncer(source_odoo, target_odoo)
 instance.sync('customer_asset.asset')
+
+# TODO:
+# 1. combine these login things into one function login(source_odoo), login(target_odoo)
+# 2. get the list of models to sync from the yaml file
+# 3. extra parameter PER MODEL: sync_dependencies: Boolean --> yes/no (if no, "dumb" sync of model)
+# 4. extra parameter PER MODEL: exclude_fields: list --> exclude stupid stuff like 'stock.location'
+
