@@ -5,10 +5,115 @@ source:
   user: admin
   password: admin
   ssl: yes
+  models:
+  - model: 'res.partner'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'res.users'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['id','alias_contact','user_ids','log_ids','message_needaction_counter','property_product_pricelist','groups_id','meeting_ids','state_id','signup_url','country_id','company_uom_id','alias_parent_model_id','message_follower_ids','message_partner_ids','currency_id','analytic_account_id','message_ids','alias_model_id','task_ids','type_ids', 'tasks', 'company_id', 'alias_id', 'sale_team_id','password_crypt','display_name', 'image_medium', 'image', 'image_small', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'mail.message.subtype'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['parent_id','channel_ids','child_ids', 'needaction_partner_ids','attachment_ids' ,'partner_ids','author_avatar','company_id', 'id', 'sequence', 'alias_parent_model_id', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'mail.message'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['parent_id','starred_partner_ids','notification_ids','model','mail_server_id','child_ids', 'needaction_partner_ids','attachment_ids' ,'partner_ids','author_avatar','company_id', 'id', 'sequence', 'alias_parent_model_id', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'mail.mail'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['recipient_ids','parent_id', 'tracking_value_ids','starred_partner_ids','channel_ids','child_ids', 'needaction_partner_ids','attachment_ids' ,'partner_ids','author_avatar','company_id', 'id', 'sequence', 'alias_parent_model_id', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'customer_asset.type'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'customer_asset.brand'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'customer_asset_freshfilter.op_brand'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'customer_asset_freshfilter.op_type'
+    domain:
+    -  []
+    excluded_fields:
+    - !!python/tuple ['__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'customer_asset.model'
+    domain:
+    -  []
+    excluded_fields:
+    - !!python/tuple ['id', 'display_name', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'customer_asset.asset'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['message_channel_ids','message_follower_ids','message_ids','message_partner_ids']
+    follow_deps: False
+
+  - model: 'project.project'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['id','issue_ids','project_ids','message_ids','favorite_user_ids','task_needaction_count','tag_ids','type_ids','task_ids','tasks','message_follower_ids','alias_model','alias_force_thread_id','alias_parent_thread_id','sequence','company_uom_id','alias_parent_model_id','currency_id','analytic_account_id','alias_model_id','company_id', 'alias_id', 'display_name', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'project.task.type'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['id', 'sequence', 'display_name', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'project.task'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['manager_id','message_ids', 'message_needaction_counter', 'company_id', 'display_name',  'id', 'message_channel_ids', 'sequence', 'alias_parent_model_id', 'message_follower_ids', 'message_partner_ids','company_id', 'display_name', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'project.issue'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['message_follower_ids','message_channel_ids','message_needaction_counter', 'message_ids','company_id', 'display_name', 'id','sequence', 'alias_parent_model_id', 'message_partner_ids','company_id', 'display_name', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
 target:
-  host: 192.168.0.103
-  port: 8069
-  database: odoo8etl
+  host: freshfilter-portal.1systeem.nl
+  port: 443
+  database: freshfilter_portal
   user: admin
   password: admin
-  

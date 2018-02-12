@@ -1,5 +1,4 @@
 from pprint import pprint
-import collections
 
 class ModelSyncer():
 
@@ -8,69 +7,30 @@ class ModelSyncer():
         self.dest = dest
         self.source_ir_fields = source.env['ir.model.fields']
         self.dest_ir_model_obj = dest.env['ir.model.data']
-        self.excluded_fields = ('__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid')
-        self.odoo_main_models = ('utm.medium','res.partner', 'ir.model', 'crm.team', 'account.journal')
-        self._depends_struct = {}
-        self._fields_struct = {}
-        self._non_related_fields ={}
-        self.mapping = {}
         self.dest_trans = {}
-        self.unique_model = set()
+        self._fields_struct = {}
 
-    # def _get_odoo_main_fields(self, model):
-    #
-    #     odoo_main_fields = self._non_related_fields.get(model)
-    #
-    #     source_main_obj = self.source.env[model]
-    #     source_main_ids = source_main_obj.search([])
-    #     source_main_fields = source_main_obj.browse(source_main_ids).read(odoo_main_fields)
-    #
-    #     dest_main_obj = self.dest.env[model]
-    #     dest_main_ids = dest_main_obj.search([])
-    #     print ' dest_main_obj ', dest_main_obj, 'odoo main fields ', odoo_main_fields
-    #     dest_main_fields = dest_main_obj.read(dest_main_ids, odoo_main_fields)
-
-
-    def _get_depends(self, model):
+    def _prepare_sync(self, model, domain, excluded_fields):
+        self.source_trans = {}
         relational_fields = self.source_ir_fields.search([('model', '=', model)])
         relational_fields_name = self.source_ir_fields.browse(relational_fields).read([])
-        relational_fields = {field.get('relation'): field.get('name') for field in relational_fields_name if
-                            field.get('name') not in self.excluded_fields and field.get('ttype') == 'many2one'}
-
-        non_relational_fields = [field.get('name') for field in relational_fields_name if
-                            field.get('name') not in self.excluded_fields and not field.get('ttype') in ('many2one', 'many2many', 'one2many')]
-
-        self.mapping.update(relational_fields)
-        relational_objs = filter(None, relational_fields.keys())
-        self._depends_struct.update(dict({model: relational_objs}))
-        obj_fields = relational_fields.values()
+        model_fields = {field.get('name'): field.get('model') for field in relational_fields_name if
+                        field.get('name') not in excluded_fields[0]}
+        obj_fields = model_fields.keys()
         self._fields_struct.update(dict({model: obj_fields}))
-        self._non_related_fields.update(dict({model: non_relational_fields}))
-
-        for related_obj in relational_objs:
-            if related_obj not in self.unique_model:
-                self.unique_model.add(related_obj)
-                self._get_depends(related_obj)
-            # elif related_obj in self.odoo_main_models:
-            #     self._get_odoo_main_fields(related_obj)
-
-    def _prepare_sync(self, model):
-        self.source_trans = {}
-
         source_obj = self.source.env[model]
-        source_obj_ids = source_obj.search([])
+        if domain[0]:
+            source_obj_ids = source_obj.search([domain[0]])
+        else:
+            source_obj_ids = source_obj.search(domain[0])
         dest_external_ids = self.dest_ir_model_obj.search([('model', '=', model)])
         dest_external_records = self.dest_ir_model_obj.browse(dest_external_ids).read()
-        if self._fields_struct.get(model):
-            source_records = source_obj.browse(source_obj_ids).read(self._fields_struct.get(model))
-            for record in source_records:
-                field_data = map(lambda x: record[x], self._fields_struct.get(model))
-                self.source_trans.update({record['id']: field_data})
-        elif self._non_related_fields.get(model):
-            source_records = source_obj.browse(source_obj_ids).read(self._non_related_fields.get(model))
-            for record in source_records:
-                field_data = map(lambda x: record[x], self._non_related_fields.get(model))
-                self.source_trans.update({record['id']: field_data})
+        source_records = source_obj.browse(source_obj_ids).read()
+
+        for record in source_records:
+            field_data = map(lambda x: record[x], self._fields_struct.get(model))
+            self.source_trans.update({record['id']: field_data})
+
         if dest_external_records:
             for r in dest_external_records:
                 fields_data = {
@@ -84,61 +44,82 @@ class ModelSyncer():
 
     def _get_proper_name(self, model, id):
         # TODO  cleaner way
-        return model.replace('.', '_')+'_'+str(id)
+        return model.replace('.', '_') + '_' + str(id)
 
-    def _map_fields(self, submodel, data):
-        vals = dict(zip(self._fields_struct.get(submodel), data))
-        source_ids = [x[0] for x in data if isinstance(x,(list,))]
-        d = dict(zip(self._depends_struct.get(submodel), source_ids))
+    def _map_fields(self, model, data):
+        vals = dict(zip(self._fields_struct.get(model), data))
+        trans = {'customer_asset.brand': 'brand_id',
+                 'customer_asset.type': 'type_id',
+                 'res.partner': 'partner_id',
+                 'project.project': 'project_id',
+                 'project.task.type': 'stage_id',
+                 'res.users': 'user_id',
+                 'mail.mail': 'mail_message_id',
+                 'mail.message.subtype': 'subtype_id',
+                 'customer_asset.model': 'model_id'}
+
+        if model in ('mail.mail', 'mail.message'):
+            trans.update({'res.partner': 'author_id'})
+        if model == 'res.partner':
+            vals = {'name': vals.get('self')[1]}
+            # vals.update({'is_company': True})
+            return vals
+
+        if model == 'res.users':
+            vals = {'name': vals.get('name'),
+                    'login': vals.get('login')}
+            return vals
+
+        if model in ('customer-asset.type','customer_asset,brand'):
+            return vals
+
+        reversed_trans = {k:v for v, k in trans.iteritems()}
+
+        for key in vals.keys():
+            if reversed_trans.get(key):
+                vals[reversed_trans.get(key)] = vals.pop(key)
         proper_name = []
-        for k, v in d.iteritems():
-            proper_name.append(self._get_proper_name(k, v))
+        for k, v in vals.iteritems():
+            if isinstance(v, (list,)) and len(v) != 0:
+                proper_name.append(self._get_proper_name(k, v[0]))
+
         for name in proper_name:
-            if self.dest_trans.get(name):
-                print ' name ', name
-                dest_id = self.dest_ir_model_obj.search([('name', '=', '__export_sfit__.'+name)])
+            dest_id = self.dest_ir_model_obj.search([('name', '=', '__export_sfit__.'+name)])
+            if dest_id:
                 dest_id = self.dest_ir_model_obj.read(dest_id, ['res_id', 'model'])
                 related_model = dest_id[0].get('model')
                 dest_id = dest_id[0].get('res_id')
-                dest_field = self.mapping.get(related_model)
-                print ' dest_field ',dest_field,' dest_id', dest_id
+                dest_field = trans.get(related_model)
                 vals.update({dest_field: dest_id})
+
         return vals
 
-    def _sync_one_model(self, submodel):
-        self._prepare_sync(submodel)
-        print 'syncing model ', submodel
-        if submodel not in self.odoo_main_models:
+    def _sync_one_model(self, model, domain, excluded_fields):
+        self._prepare_sync(model, domain, excluded_fields)
+        if self.source_trans:
             for id, data in self.source_trans.iteritems():
-                if self._non_related_fields.get(submodel):
-                    vals_non_related_fields = dict(zip(self._non_related_fields.get(submodel), data))
-                if self._fields_struct.get(submodel):
-                    vals_related_fields = dict(zip(self._fields_struct.get(submodel), data))
-                # self._map_fields(submodel, data)
-                if self.dest_trans.get(self._get_proper_name(submodel, id)):
-                    if self._depends_struct.get(submodel):
-                        existing_record_id = self.dest_trans.get(self._get_proper_name(submodel, id))['res_id']
-                        dest_existing_record = self.dest.env[submodel].browse(existing_record_id)
-                        dest_existing_record.write(self._map_fields(submodel, data))
-                    else:
-                        existing_record_id = self.dest_trans.get(self._get_proper_name(submodel, id))['res_id']
-                        dest_existing_record = self.dest.env[submodel].browse(existing_record_id)
-                        dest_existing_record.write(vals_non_related_fields)
+                if self.dest_trans.get(self._get_proper_name(model, id)):
+                    pprint(self._map_fields(model, data))
+                    existing_record_id = self.dest_trans.get(self._get_proper_name(model, id))['res_id']
+                    dest_existing_record = self.dest.env[model].browse(existing_record_id)
+                    dest_existing_record.write(self._map_fields(model, data))
+
                 else:
-                    if self._depends_struct.get(submodel):
-                        record_id = self.dest.env[submodel].create(self._map_fields(submodel, data))
-                    else:
-                        record_id = self.dest.env[submodel].create(vals_non_related_fields)
+                    if model == 'res.users':
+                        if self._map_fields(model, data).get('login') == 'admin':
+                            continue
+
+                    record_id = self.dest.env[model].create(self._map_fields(model, data))
 
                     external_ids = {
-                        'model': submodel,
-                        'name': '__export_sfit__.' + self._get_proper_name(submodel, id),
+                        'model': model,
+                        'name': '__export_sfit__.' + self._get_proper_name(model, id),
                         'res_id': record_id,
-                    }
+                        }
                     self.dest_ir_model_obj.create(external_ids)
 
     def sync(self, model):
-        self._get_depends(model)
-        for submodel in reversed(self._depends_struct.get(model)):
-            self._sync_one_model(submodel)
-        self._sync_one_model(model)
+        domain = model.get('domain')
+        excluded_fields = model.get('excluded_fields')
+        model_to_sync = model.get('model')
+        self._sync_one_model(model_to_sync, domain, excluded_fields)
