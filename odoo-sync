@@ -14,53 +14,47 @@ parser = argparse.ArgumentParser()
 parser.add_argument('yamlfile')
 args = parser.parse_args()
 
+
 with open(args.yamlfile, 'r') as file:
     _dict = yaml.load(file)
+    _dict = [] if _dict is None else _dict
     source = _dict.get('source')
     target = _dict.get('target')
 
-opener = False
-protocol = 'jsonrpc'
-if source.get('ssl', None):
-	ctx = ssl.create_default_context()
-	ctx.check_hostname = False
-	ctx.verify_mode = ssl.CERT_NONE
-	opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
-	protocol='jsonrpc+ssl'
-source_odoo = odoorpc.ODOO(
-	source.get('host'),
-	port=source.get('port'),
-	opener=opener,
-	protocol=protocol
-)
-source_odoo.login(
-	source.get('database'), 
-	source.get('user'), 
-	source.get('password')
-)
+def odoo_login(odoo_instance):
+    opener = False
+    protocol = 'jsonrpc'
 
-opener = False
-protocol = 'jsonrpc'
-if target.get('ssl', None):
-	ctx = ssl.create_default_context()
-	ctx.check_hostname = False
-	ctx.verify_mode = ssl.CERT_NONE
-	opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
-	protocol='jsonrpc+ssl'
-target_odoo = odoorpc.ODOO(
-	target.get('host'), 
-	port=target.get('port'), 
-	opener=opener, 
-	protocol=protocol
-)
-target_odoo.login(
-	target.get('database'), 
-	target.get('user'), 
-	target.get('password')
-)
+    if odoo_instance.get('ssl', None):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
+        protocol = 'jsonrpc+ssl'
+
+    instance = odoorpc.ODOO(
+        odoo_instance.get('host'),
+        port=odoo_instance.get('port'),
+        opener=opener,
+        protocol=protocol
+    )
+
+    instance.login(
+        odoo_instance.get('database'),
+        odoo_instance.get('user'),
+        odoo_instance.get('password')
+    )
+
+    return instance
+
+source_odoo = odoo_login(source)
+target_odoo = odoo_login(target)
 
 instance = ModelSyncer(source_odoo, target_odoo)
-instance.sync('customer_asset.asset')
+models = source.get('models')
+for model in models:
+    instance.sync(model)
+
 
 # TODO:
 # 1. combine these login things into one function login(source_odoo), login(target_odoo)
