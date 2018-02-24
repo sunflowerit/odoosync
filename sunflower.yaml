@@ -1,0 +1,82 @@
+source:
+  host: sunflower.1systeem.nl
+  port: 443
+  database: odoo_sunflower
+  user: admin
+  password: ch0c0la
+  ssl: yes
+  models:
+  - model: 'res.partner'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple [ 'message_follower_ids','invoice_ids','contract_ids','company_id','property_account_receivable','lang','property_account_position', 'signup_valid', 'ref_companies', 'sale_order_count', 'purchase_order_count', 'contact_address', 'property_product_pricelist', 'signup_url', 'journal_item_count', 'opt_out', 'title', 'fax', 'child_ids', 'phonecall_count', 'image_medium', 'commercial_partner_id', 'notify_email', 'street', 'task_ids', 'country_id', 'tz_offset', 'debit', 'supplier', 'message_summary', 'ref', 'email', 'city', 'street2', 'opportunity_ids', 'property_product_pricelist_purchase', 'comment', 'color', 'image', 'message_is_follower', 'message_last_post', 'type', 'vat', 'function', 'issue_count', 'task_count', 'customer', 'sale_order_ids', 'image_small', 'opportunity_count', 'has_image', 'state_id', 'website', 'use_parent_address', 'signup_type', 'id', 'meeting_ids','message_ids', 'property_account_payable', 'property_stock_supplier', 'is_company', 'bank_ids', 'vat_subjected','property_supplier_payment_term', 'property_stock_customer','credit_limit', 'meeting_count', 'mobile', 'property_payment_term', 'category_id','__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'res.users'
+    domain:
+    - !!python/tuple [!!python/tuple ['id','!=',1]]
+    excluded_fields:
+    - !!python/tuple  ['lang','bank_ids','category_id','alias_user_id','property_stock_supplier','property_stock_customer','groups_id','res.groups','account.payment.term','action_id','google_calendar_cal_id','alias_id','property_account_payable','property_account_receivable','mail.alias','default_section_id','alias_parent_model_id','alias_model_id','company_ids','company_id','country_id','property_account_position','id', 'signup_valid', 'ref_companies', 'write_uid', 'property_product_pricelist', 'signup_url', 'journal_item_count', 'parent_name', 'display_name', 'title', 'parent_id', 'last_reconciliation_date', 'contracts_count', 'supplier_invoice_count', 'fax', 'purchase_order_count', 'child_ids', 'user_ids', 'calendar_last_notif_ack',  'image_medium', 'debit_limit', 'signup_token', 'contract_ids', 'commercial_partner_id', 'message_follower_ids', 'create_date', 'notify_email', 'image_small', 'task_ids', 'tz_offset', 'state', 'debit', 'supplier', 'message_summary', 'ref', 'create_uid', 'opportunity_ids','signup_expiration', 'property_product_pricelist_purchase', 'section_id', 'credit', 'message_unread', 'color', 'image',  'total_invoiced', 'password_crypt', 'city', 'phonecall_ids', 'user_id', 'message_is_follower', '__last_update', 'message_last_post', 'sel_groups_50_51', 'sale_order_ids', 'phonecall_count','state_id', 'invoice_ids', 'id', 'meeting_ids', 'date', 'message_ids', 'write_date']
+    follow_deps: False
+
+  - model: 'mail.message.subtype'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['parent_id','channel_ids','child_ids', 'needaction_partner_ids','attachment_ids' ,'partner_ids','author_avatar','company_id', 'id', 'sequence', 'alias_parent_model_id', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+#  - model: 'mail.message'
+#    domain:
+#    - []
+#    excluded_fields:
+#    - !!python/tuple ['parent_id','starred_partner_ids','notification_ids','model','mail_server_id','child_ids', 'needaction_partner_ids','attachment_ids' ,'partner_ids','author_avatar','company_id', 'id', 'sequence', 'alias_parent_model_id', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+#    follow_deps: False
+
+
+  - model: 'mail.mail'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['mail_server_id','description', 'destination_object_id', 'fetchmail.server', 'ir.mail_server','alias_id','alias_model_id','account.payment.term','model','groups_id','recipient_ids','parent_id', 'tracking_value_ids','starred_partner_ids','channel_ids','child_ids', 'needaction_partner_ids','attachment_ids' ,'partner_ids','author_avatar','company_id', 'id', 'sequence', 'alias_parent_model_id', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'project.project'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['id','alias_model_id','template_id','pricelist_id','type_ids','message_ids','message_follower_ids','parent_id','currency_id','sequence','company_uom_id','company_id','alias_parent_model_id','alias_user_id','analytic_account_id','message_summary', 'last_worked_date', 'est_total',  'expense_invoiced', 'ca_to_invoice','remaining_hours_to_invoice', 'user_ids', 'effective_hours', 'theorical_margin', 'remaining_expense', 'close_waittime', 'remaining_hours', 'last_worked_invoiced_date', 'last_invoice_date', 'task_ids', 'alias_name', 'total_cost', 'state', 'debit', 'toinvoice_total', 'amount_invoiced', 'members', 'active', 'timesheet_ca_invoiced', 'resource_calendar_id', 'invoice_on_timesheets', 'response_waittime', 'real_margin_rate', 'credit', 'month_ids', 'line_ids', 'recurring_rule_type', 'message_unread', 'tasks', 'color', 'child_complete_ids', 'amount_max', 'user_id', 'message_is_follower', 'use_tasks', 'message_last_post', 'manager_id', 'hours_qtt_est', 'type', 'est_expenses', 'issue_count', 'issue_ids', 'calltake_waittime', 'ca_invoiced', 'website_meta_description', 'task_count', 'recurring_next_date', 'fix_price_to_invoice', 'ca_theorical', 'use_issues', 'revenue_per_hour', 'website_meta_keywords', 'balance', 'quantity_max', 'recurring_invoices', 'invoiced_total', 'hours_qtt_non_invoiced', 'doc_count', 'remaining_total', 'privacy_visibility', 'partner_id', 'date_start', 'website_meta_title', 'real_margin', 'is_overdue_quantity', 'hours_qtt_invoiced', 'expense_to_invoice', 'description', 'alias_contact', 'remaining_ca', 'date', 'recurring_interval', 'complete_name', 'recurring_invoice_line_ids', 'quantity','__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'project.task.type'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['id', 'project_ids','sequence', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'project.task'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['manager_id','project.task.work','message_ids', 'message_needaction_counter', 'company_id', 'display_name',  'id', 'message_channel_ids', 'sequence', 'alias_parent_model_id', 'message_follower_ids', 'message_partner_ids','company_id', 'display_name', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+  - model: 'project.issue'
+    domain:
+    - []
+    excluded_fields:
+    - !!python/tuple ['company_id','work_ids','timesheet_ids','message_ids','hr.analytic.timesheet','message_is_follower','project.task.work','section_id','analytic_account_id' ,'message_follower_ids' ,'id','mail.message', 'categ_ids', 'color', 'date_last_stage_update', 'inactivity_days', 'message_summary', 'channel', 'kanban_state', 'calltake_waittime', 'version_id', 'days_since_creation', 'date_deadline_close', 'response_waittime', 'close_waittime', 'message_unread', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+    follow_deps: False
+
+
+
+target:
+  host: localhost
+  port: 1069
+  database: syncodoo10
+  user: admin
+  password: admin
+  ssl: no
+
