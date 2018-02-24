@@ -17,7 +17,6 @@ args = parser.parse_args()
 
 with open(args.yamlfile, 'r') as file:
     _dict = yaml.load(file)
-    _dict = [] if _dict is None else _dict
     source = _dict.get('source')
     target = _dict.get('target')
 
@@ -54,11 +53,3 @@ instance = ModelSyncer(source_odoo, target_odoo)
 models = source.get('models')
 for model in models:
     instance.sync(model)
-
-
-# TODO:
-# 1. combine these login things into one function login(source_odoo), login(target_odoo)
-# 2. get the list of models to sync from the yaml file
-# 3. extra parameter PER MODEL: sync_dependencies: Boolean --> yes/no (if no, "dumb" sync of model)
-# 4. extra parameter PER MODEL: exclude_fields: list --> exclude stupid stuff like 'stock.location'
-
