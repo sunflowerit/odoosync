@@ -48,7 +48,7 @@ def odoo_login(odoo_instance):
 
 source_odoo = odoo_login(source)
 target_odoo = odoo_login(target)
-
+source_odoo.config['timeput'] = 600
 instance = ModelSyncer(source_odoo, target_odoo)
 models = source.get('models')
 for model in models:
