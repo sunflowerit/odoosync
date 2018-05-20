@@ -1,6 +1,6 @@
 from collections import OrderedDict, defaultdict
 from pprint import pprint
-
+import re
 
 class ModelSyncer():
 
@@ -20,7 +20,11 @@ class ModelSyncer():
         self.source_trans = {}
         self.dest_trans = {}
         source_obj = self.source.env[model]
+
+        print ' domain is ', [domain]
+
         source_obj_ids = source_obj.search(domain)
+
         records = source_obj.browse(source_obj_ids).with_context({'mail_create_nosubscribe':True}).read([])
         [source_records.append(record) for record in records]
 
@@ -60,7 +64,7 @@ class ModelSyncer():
 
     def _map_fields(self, model, data):
         vals = dict(zip(self._fields_struct.get(model), data))
-        print ' vals before for model  ', model
+        # print ' vals before for model  ', model
         pprint(vals)
         many2one_fields = [item for sublist in self._many2one_fields.values() for item in sublist]
         one2many_fields = [item for sublist in self._one2many_fields.values() for item in sublist]
@@ -70,26 +74,20 @@ class ModelSyncer():
                 if field in many2one_fields:
                     for k, v in self._many2one_fields.iteritems():
                         if field in v:
-                            # vals[k] = vals.pop(field)
                             proper_name.append([field,k, value[0]])
 
                 elif field in one2many_fields:
                     for k,v in self._one2many_fields.iteritems():
                         if field in v:
-                            # vals[k] = vals.pop(field)
                             for i in value:
                                 proper_name.append([field,k, i])
-                        # vals[k] =  [(0, 0, {})]
 
-            # else:
-            #     print ' consider related models for these fields ', field
-        # pprint(proper_name)
+
         for record in proper_name:
             field, model_name, proper_name = record[0], record[1], self._get_proper_name(record[1],record[2])
             dest_id = self.dest_ir_model_obj.search([('name', '=', self._prefix+proper_name)])
             if dest_id:
                 dest_id = self.dest_ir_model_obj.read(dest_id, ['res_id', 'model'])
-                # related_model = dest_id[0].get('model')
                 field_id = dest_id[0].get('res_id')
                 if field in many2one_fields:
                     vals.update({field: field_id})
@@ -99,29 +97,51 @@ class ModelSyncer():
                     vals[field][_id_index] = field_id
             else:
                 print '----------------- consider syncing model ', model_name,' with id:', record[2]
+                # self._sync_one_model(model_name)
+                # self.create_model_record(model_name, vals, record[2])
                 # self._sync_one_model(model_name,domain=[],excluded_fields=['ir.model','mail.alias','mail.alias','ir.model.fields'])
+        # print ' vals after for model ', model
+        # pprint(vals)
         return vals
 
-    def _sync_one_model(self, model,domain,excluded_fields):
+    def write_model_record(self, model, vals, id):
+        existing_record_id = self.dest_trans.get(self._get_proper_name(model, id))['res_id']
+        dest_existing_record = self.dest.env[model].browse(existing_record_id)
+        dest_existing_record.write(vals)
+        print ' write model ', model
+
+    def create_model_record(self, model, vals, id):
+        record_id = self.dest.env[model].create(vals)
+        external_ids = {
+            'model': model,
+            'name': self._prefix + self._get_proper_name(model, id),
+            'res_id': record_id,
+        }
+        print 'create  model ', model
+        self.dest_ir_model_obj.create(external_ids)
+
+    def _sync_one_model(self, model,domain=False,excluded_fields=False):
         self._prepare_sync(model,domain,excluded_fields)
         if self.source_trans:
             print 'syncing model  model ', model
             for id, data in self.source_trans.iteritems():
+                vals = self._map_fields(model, data)
                 if self.dest_trans.get(self._get_proper_name(model, id)):
-                    existing_record_id = self.dest_trans.get(self._get_proper_name(model, id))['res_id']
-                    dest_existing_record = self.dest.env[model].browse(existing_record_id)
-                    dest_existing_record.write(self._map_fields(model, data))
-                    print ' write model ', model
-
+                    self.write_model_record(model, vals, id)
                 else:
-                    record_id = self.dest.env[model].create(self._map_fields(model, data))
-                    external_ids = {
-                        'model': model,
-                        'name': self._prefix + self._get_proper_name(model, id),
-                        'res_id': record_id,
-                        }
-                    print 'create  model ', model
-                    self.dest_ir_model_obj.create(external_ids)
+                    self.create_model_record(model, vals, id)
+                if model == 'res.partner':
+                    vals = {'name': vals.get('name'), 'login': vals.get('email') or vals.get('name').split(' ')[0]}
+                    if self.dest_trans.get(self._get_proper_name('res.users', id)):
+                        if vals.get('login') != 'admin':
+                            continue
+                        self.write_model_record('res.users', vals, id)
+                    else:
+                        try:
+                            self.create_model_record('res.users', vals, id)
+                        except:
+                            print 'Error in values: ', vals
+                            pass
 
     def sync(self, model):
         domain = model.get('domain')[0]
