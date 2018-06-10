@@ -20,3 +20,8 @@ To import into your own Python scripts:
 
     from odoosync.ModelSyncer import ModelSyncer
 
+To add to `buildout.cfg`:
+
+    extensions = gp.vcsdevelop
+    vcs-extend-develop = git+ssh://git@github.com/sunflowerit/odoosync.git@master#egg=odoosync-0.1
+
