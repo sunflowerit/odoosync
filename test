@@ -1,2 +1,0 @@
-#!/bin/bash
-./odoo-sync customer-asset.yaml

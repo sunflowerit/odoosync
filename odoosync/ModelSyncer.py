@@ -2,6 +2,7 @@ from collections import OrderedDict, defaultdict
 from pprint import pprint
 import re
 
+
 class ModelSyncer():
 
     def __init__(self, source, dest):
