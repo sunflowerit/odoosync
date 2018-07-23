@@ -1,8 +1,8 @@
 .. image:: https://img.shields.io/badge/licence-AGPL--3-blue.svg
     :alt: License: AGPL-3
 
-odoo-sync
-=========
+odoosync
+========
 
 This Python package allows to sync between one Odoo and another.
 
@@ -63,7 +63,7 @@ Credits
 Contributors
 ------------    
 
-* Hayyan Ebraham <hayyan-ebrahem@hotmail.com>
+* Hayyan Ebrahem <hayyan-ebrahem@hotmail.com>
 * Tom Blauwendraat <tom@sunflowerweb.nl>
 
 Maintainer
