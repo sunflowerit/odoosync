@@ -1,0 +1,21 @@
+source:
+  host: source.example.com
+  port: 443
+  database: example1
+  ssl: yes
+
+target:
+  host: localhost
+  port: 8069
+  database: test
+
+manual_mapping:
+  res.company:
+    {2: 1}
+
+models:
+- model: 'res.partner'
+  domain: [['is_company', '=', True], ['company_id', '=', 2]]
+  excluded_fields:
+  - 'signup_url'
+

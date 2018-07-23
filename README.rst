@@ -63,8 +63,8 @@ Credits
 Contributors
 ------------    
 
-* Hayyan Ebrahem <hayyan-ebrahem@hotmail.com>
-* Tom Blauwendraat <tom@sunflowerweb.nl>
+* Hayyan Ebrahem
+* Tom Blauwendraat
 
 Maintainer
 ----------
