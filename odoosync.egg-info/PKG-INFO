@@ -1,0 +1,17 @@
+Metadata-Version: 1.1
+Name: odoosync
+Version: 0.1
+Summary: Script to sync from one Odoo to another
+Home-page: https://github.com/sunflowerit
+Author: Sunflower IT
+Author-email: info@sunflowerweb.nl
+License: AGPLv3+
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Framework :: Buildout :: Recipe
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: System Administrators
+Classifier: License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)
+Classifier: Topic :: Software Development :: Build Tools
+Classifier: Topic :: Software Development :: Libraries :: Python Modules

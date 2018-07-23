@@ -1,0 +1,13 @@
+README.md
+setup.cfg
+setup.py
+bash-scripts/odoosync
+odoosync/ModelSyncer.py
+odoosync/__init__.py
+odoosync.egg-info/PKG-INFO
+odoosync.egg-info/SOURCES.txt
+odoosync.egg-info/dependency_links.txt
+odoosync.egg-info/namespace_packages.txt
+odoosync.egg-info/not-zip-safe
+odoosync.egg-info/requires.txt
+odoosync.egg-info/top_level.txt
