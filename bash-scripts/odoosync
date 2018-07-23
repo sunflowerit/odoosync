@@ -10,15 +10,17 @@ import argparse
 
 from ModelSyncer import ModelSyncer
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('yamlfile')
 args = parser.parse_args()
 
 
-with open(args.yamlfile, 'r') as file:
-    _dict = yaml.load(file)
-    source = _dict.get('source')
-    target = _dict.get('target')
+def helptext(host):
+    print "In your $HOME/.netrc file place:"
+    print "machine {} login myuser password mypassword".format(host)
+    sys.exit(0)
+
 
 def odoo_login(odoo_instance):
     opener = False
@@ -31,25 +33,43 @@ def odoo_login(odoo_instance):
         opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
         protocol = 'jsonrpc+ssl'
 
+    host = odoo_instance.get('host')
+    port = odoo_instance.get('port')
+    database = odoo_instance.get('database')
     instance = odoorpc.ODOO(
-        odoo_instance.get('host'),
-        port=odoo_instance.get('port'),
+        host,
+        port=port,
         opener=opener,
         protocol=protocol
     )
 
-    instance.login(
-        odoo_instance.get('database'),
-        odoo_instance.get('user'),
-        odoo_instance.get('password')
-    )
-
+    # get login details from netRC file
+    try:
+        netrc_info = netrc.netrc()
+    except IOError:
+        helptext(host) 
+    auth_info = netrc_info.authenticators(host)
+    if not auth_info:
+        helptext(host)
+        print "In your $HOME/.netrc file place:"
+        print "machine {} login myuser password mypassword".format(host)
+        sys.exit(0)
+    username, host2, password = auth_info
+    print "Connecting to host={}, database={}, user={}".format(host, database, username)
+    instance.login(database, username, password)
     return instance
+
+with open(args.yamlfile, 'r') as file:
+    _dict = yaml.load(file)
+    source = _dict.get('source')
+    target = _dict.get('target')
+    manual_mapping = _dict.get('manual_mapping')
+    models = _dict.get('models')
 
 source_odoo = odoo_login(source)
 target_odoo = odoo_login(target)
-source_odoo.config['timeput'] = 600
-instance = ModelSyncer(source_odoo, target_odoo)
-models = source.get('models')
+source_odoo.config['timeout'] = 600
+instance = ModelSyncer(source_odoo, target_odoo, manual_mapping=manual_mapping)
 for model in models:
     instance.sync(model)
+
