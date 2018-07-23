@@ -8,7 +8,7 @@ import urllib2
 import yaml
 import argparse
 
-from ModelSyncer import ModelSyncer
+from odoosync.ModelSyncer import ModelSyncer
 
 
 parser = argparse.ArgumentParser()
