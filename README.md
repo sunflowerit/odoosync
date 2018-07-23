@@ -22,6 +22,12 @@ To import into your own Python scripts:
 
 To add to `buildout.cfg`:
 
+    [buildout]
     extensions = gp.vcsdevelop
     vcs-extend-develop = git+ssh://git@github.com/sunflowerit/odoosync.git@master#egg=odoosync-0.1
+
+    [odoo]
+    odoo_scripts = 
+        odoosync=odoosync
+
 
