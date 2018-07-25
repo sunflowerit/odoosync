@@ -25,7 +25,7 @@ class ModelSyncer():
 
         source_obj_ids = source_obj.search(domain)
 
-        records = source_obj.browse(source_obj_ids).with_context({'mail_create_nosubscribe':True}).read([])
+        records = source_obj.browse(source_obj_ids).with_context({a}).read([])
         [source_records.append(record) for record in records]
 
         fields = self.source_ir_fields.search([('model', '=', model)])
@@ -85,6 +85,7 @@ class ModelSyncer():
 
         for record in proper_name:
             field, model_name, proper_name = record[0], record[1], self._get_proper_name(record[1],record[2])
+
             dest_id = self.dest_ir_model_obj.search([('name', '=', self._prefix+proper_name)])
             if dest_id:
                 dest_id = self.dest_ir_model_obj.read(dest_id, ['res_id', 'model'])
@@ -112,6 +113,8 @@ class ModelSyncer():
 
     def create_model_record(self, model, vals, id):
         record_id = self.dest.env[model].create(vals)
+        if model == 'res.users':
+            id = record_id
         external_ids = {
             'model': model,
             'name': self._prefix + self._get_proper_name(model, id),
@@ -123,17 +126,25 @@ class ModelSyncer():
     def _sync_one_model(self, model,domain=False,excluded_fields=False):
         self._prepare_sync(model,domain,excluded_fields)
         if self.source_trans:
+            s = []
             print 'syncing model  model ', model
             for id, data in self.source_trans.iteritems():
                 vals = self._map_fields(model, data)
                 if self.dest_trans.get(self._get_proper_name(model, id)):
-                    self.write_model_record(model, vals, id)
+                    try:
+                        self.write_model_record(model, vals, id)
+                    except:
+                        print ' errors ', s.append(vals)
                 else:
+                    # try:
                     self.create_model_record(model, vals, id)
+                    # except:
+                    print 'error ', vals
+                    s.append(vals)
                 if model == 'res.partner':
                     vals = {'name': vals.get('name'), 'login': vals.get('email') or vals.get('name').split(' ')[0]}
                     if self.dest_trans.get(self._get_proper_name('res.users', id)):
-                        if vals.get('login') != 'admin':
+                        if vals.get('login') == 'admin':
                             continue
                         self.write_model_record('res.users', vals, id)
                     else:
@@ -142,6 +153,7 @@ class ModelSyncer():
                         except:
                             print 'Error in values: ', vals
                             pass
+            print '----------- ', s
 
     def sync(self, model):
         domain = model.get('domain')[0]
