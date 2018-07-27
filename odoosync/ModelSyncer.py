@@ -28,22 +28,42 @@ class ModelSyncer():
         self._prefix = '__export_sfit__.'
 
     def _prepare_sync(self, model, domain=None,
-            excluded_fields=None, since=None):
+            excluded_fields=None, since=None, context=None):
         if since:
             domain.append(('write_date', '>', since))
         print u'domain: {}'.format(domain)
         source_records = []
         self.source_trans = {}
         self.dest_trans = {}
+        self.source.env.context.update(context or {})
+        self.dest.env.context.update(context or {})
         source_obj = self.source.env[model]
         source_obj_ids = source_obj.search(domain or [])
-        excluded_fields_set = set(excluded_fields or []).union(set(DEFAULT_EXCLUDED_FIELDS))
+        excluded_fields_set = set(excluded_fields or []).union(
+            set(DEFAULT_EXCLUDED_FIELDS))
 
         records = source_obj.browse(source_obj_ids).with_context({
             'mail_create_nosubscribe': True
         }).read([])
-        for record in records:
-            source_records.append(record)
+
+        if records and 'parent_id' in records[0].keys():
+            def _sort(todo, ids_done):
+                done = []
+                more_ids_done = []
+                still_todo = []
+                for _record in todo:
+                    parent_id = _record.get('parent_id')
+                    if not parent_id or parent_id in ids_done:
+                        done.append(_record)
+                        more_ids_done.append(_record['id'])
+                    else:
+                        still_todo.append(_record)
+                if more_ids_done:
+                    done.extend(_sort(still_todo, ids_done + more_ids_done))
+                else:
+                    done.extend(still_todo)
+                return done
+            source_records = _sort(records, [])
 
         fields = self.source_ir_fields.search([('model', '=', model)])
         fields_info = self.source_ir_fields.browse(fields).read([])
@@ -142,9 +162,10 @@ class ModelSyncer():
         self.dest_ir_model_obj.create(external_ids)
 
     def _sync_one_model(self, model, domain=None,
-            excluded_fields=None, since=None):
+            excluded_fields=None, since=None, context=None):
         self._prepare_sync(model, domain=domain or [],
-            excluded_fields=excluded_fields or [], since=since)
+            excluded_fields=excluded_fields or [], since=since,
+            context=context)
         if self.source_trans:
             print u'syncing model {}'.format(model)
             for id, data in self.source_trans.iteritems():
@@ -156,13 +177,15 @@ class ModelSyncer():
 
     def sync(self, model, since=None):
         domain = model.get('domain')
+        context = model.get('context')
         excluded_fields = model.get('excluded_fields')
         model_to_sync = model.get('model')
         self._sync_one_model(
             model_to_sync,
             domain=domain,
             excluded_fields=excluded_fields,
-            since=since
+            since=since,
+            context=context
         )
 
     def get_timestamp(self):
