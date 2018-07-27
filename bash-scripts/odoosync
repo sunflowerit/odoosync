@@ -1,19 +1,15 @@
 #!/usr/bin/env python
 
+import argparse
 import netrc
 import odoorpc
+import os
 import ssl
 import sys
 import urllib2
 import yaml
-import argparse
 
 from odoosync.ModelSyncer import ModelSyncer
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument('yamlfile')
-args = parser.parse_args()
 
 
 def helptext(host):
@@ -55,21 +51,38 @@ def odoo_login(odoo_instance):
         print "machine {} login myuser password mypassword".format(host)
         sys.exit(0)
     username, host2, password = auth_info
-    print "Connecting to host={}, database={}, user={}".format(host, database, username)
+    print "Connecting to host={}, database={}, user={}".format(
+        host, database, username)
     instance.login(database, username, password)
     return instance
 
-with open(args.yamlfile, 'r') as file:
-    _dict = yaml.load(file)
+parser = argparse.ArgumentParser()
+parser.add_argument('yamlfile')
+args = parser.parse_args()
+yamlfile = args.yamlfile
+timestampfile = os.path.splitext(yamlfile)[0] + '.timestamp'
+
+with open(yamlfile, 'r') as _file:
+    _dict = yaml.load(_file)
     source = _dict.get('source')
     target = _dict.get('target')
     manual_mapping = _dict.get('manual_mapping')
     models = _dict.get('models')
 
+old_timestamp = None
+try:
+    with open(timestampfile, 'r') as _file:
+        old_timestamp = _file.read()
+except IOError:
+    pass
+
 source_odoo = odoo_login(source)
 target_odoo = odoo_login(target)
 source_odoo.config['timeout'] = 600
 instance = ModelSyncer(source_odoo, target_odoo, manual_mapping=manual_mapping)
+new_timestamp = instance.get_timestamp()
 for model in models:
-    instance.sync(model)
+    instance.sync(model, since=old_timestamp)
+with open(timestampfile, 'w') as _file:
+    _file.write(new_timestamp)
 

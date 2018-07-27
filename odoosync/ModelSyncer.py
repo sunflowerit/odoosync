@@ -1,8 +1,17 @@
 import sys
+import time
 from collections import OrderedDict, defaultdict
 from pprint import pprint
 
-DEFAULT_EXCLUDED_FIELDS = ['id', '__last_update', 'create_date', 'create_uid', 'write_date', 'write_uid']
+
+DEFAULT_EXCLUDED_FIELDS = [
+    'id',
+    '__last_update',
+    'create_date',
+    'create_uid',
+    'write_date',
+    'write_uid'
+]
 
 
 class ModelSyncer():
@@ -18,7 +27,10 @@ class ModelSyncer():
         self._many2one_fields = defaultdict(list)
         self._prefix = '__export_sfit__.'
 
-    def _prepare_sync(self, model, domain=None, excluded_fields=None):
+    def _prepare_sync(self, model, domain=None,
+            excluded_fields=None, since=None):
+        if since:
+            domain.append(('write_date', '>', since))
         print u'domain: {}'.format(domain)
         source_records = []
         self.source_trans = {}
@@ -27,7 +39,9 @@ class ModelSyncer():
         source_obj_ids = source_obj.search(domain or [])
         excluded_fields_set = set(excluded_fields or []).union(set(DEFAULT_EXCLUDED_FIELDS))
 
-        records = source_obj.browse(source_obj_ids).with_context({'mail_create_nosubscribe':True}).read([])
+        records = source_obj.browse(source_obj_ids).with_context({
+            'mail_create_nosubscribe': True
+        }).read([])
         for record in records:
             source_records.append(record)
 
@@ -52,8 +66,12 @@ class ModelSyncer():
             field_data = map(lambda x: record.get(x), self._fields_struct.get(model))
             self.source_trans.update({record['id']: field_data})
 
-        dest_external_ids = self.dest_ir_model_obj.search([('name', '=ilike', self._prefix+'%')])
-        dest_external_records = self.dest_ir_model_obj.browse(dest_external_ids).read()
+        dest_external_ids = self.dest_ir_model_obj.search([
+            ('name', '=ilike', self._prefix+'%')
+        ])
+        dest_external_records = self.dest_ir_model_obj.browse(
+            dest_external_ids
+        ).read()
 
         if dest_external_records:
             for r in dest_external_records:
@@ -72,7 +90,11 @@ class ModelSyncer():
     def _map_fields(self, model, data):
         vals = dict(zip(self._fields_struct.get(model), data))
 
-        many2one_fields = [item for sublist in self._many2one_fields.values() for item in sublist]
+        many2one_fields = [
+            item
+            for sublist in self._many2one_fields.values()
+            for item in sublist
+        ]
         proper_name = []
         for field, value in vals.items():
             if value and (field in many2one_fields):
@@ -81,10 +103,17 @@ class ModelSyncer():
                         proper_name.append([field,k, value[0]])
 
         for record in proper_name:
-            field, model_name, proper_name = record[0], record[1], self._get_proper_name(record[1], record[2])
-            dest_id = self.dest_ir_model_obj.search([('name', '=', self._prefix + proper_name)])
+            field, model_name, proper_name =\
+                record[0],\
+                record[1],\
+                self._get_proper_name(record[1], record[2])
+            dest_id = self.dest_ir_model_obj.search([
+                ('name', '=', self._prefix + proper_name)
+            ])
             if dest_id:
-                dest_id = self.dest_ir_model_obj.read(dest_id, ['res_id', 'model'])
+                dest_id = self.dest_ir_model_obj.read(
+                    dest_id, ['res_id', 'model']
+                )
                 field_id = dest_id[0].get('res_id')
                 if field in many2one_fields:
                     vals.update({field: field_id})
@@ -97,12 +126,12 @@ class ModelSyncer():
                     print 'Mapping failed: consider adding manual mapping for record {}[{}]'.format(model_name, record[2])
         return vals
 
-    def write_model_record(self, model, vals, id):
+    def _write_model_record(self, model, vals, id):
         record_id = self.dest_trans.get(self._get_proper_name(model, id))['res_id']
         record = self.dest.env[model].write(record_id, vals)
         print u'updated record {}[{}]'.format(model, record_id)
 
-    def create_model_record(self, model, vals, id):
+    def _create_model_record(self, model, vals, id):
         record_id = self.dest.env[model].create(vals)
         external_ids = {
             'model': model,
@@ -112,19 +141,38 @@ class ModelSyncer():
         print u'created record {}[{}]'.format(model, record_id)
         self.dest_ir_model_obj.create(external_ids)
 
-    def _sync_one_model(self, model, domain=None, excluded_fields=None):
-        self._prepare_sync(model, domain=domain or [], excluded_fields=excluded_fields or [])
+    def _sync_one_model(self, model, domain=None,
+            excluded_fields=None, since=None):
+        self._prepare_sync(model, domain=domain or [],
+            excluded_fields=excluded_fields or [], since=since)
         if self.source_trans:
             print u'syncing model {}'.format(model)
             for id, data in self.source_trans.iteritems():
                 vals = self._map_fields(model, data)
                 if self.dest_trans.get(self._get_proper_name(model, id)):
-                    self.write_model_record(model, vals, id)
+                    self._write_model_record(model, vals, id)
                 else:
-                    self.create_model_record(model, vals, id)
+                    self._create_model_record(model, vals, id)
 
-    def sync(self, model):
+    def sync(self, model, since=None):
         domain = model.get('domain')
         excluded_fields = model.get('excluded_fields')
         model_to_sync = model.get('model')
-        self._sync_one_model(model_to_sync, domain, excluded_fields)
+        self._sync_one_model(
+            model_to_sync,
+            domain=domain,
+            excluded_fields=excluded_fields,
+            since=since
+        )
+
+    def get_timestamp(self):
+        obj = self.dest_ir_model_obj
+        dummy_record_id = obj.create({
+            'model': 'res.user',
+            'name': '__sfit_timestamp_{}'.format(int(time.time())),
+            'res_id': self.dest.env.uid
+        })
+        timestamp = obj.read(dummy_record_id)[0]['create_date']
+        obj.unlink(dummy_record_id)
+        return timestamp
+ 

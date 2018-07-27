@@ -1,4 +1,4 @@
-README.md
+README.rst
 setup.cfg
 setup.py
 bash-scripts/odoosync
