@@ -44,7 +44,7 @@ To specify login and password, put this in `$HOME/.netrc`::
     machine destination.domain.tld login me@sunflowerweb.nl password mypassword
 
 To specify which models to sync, create a YAML file.
-Please see the :: _YAML examples: https://github.com/sunflowerit/odoosync/blob/master/examples
+Please see the `YAML examples <https://github.com/sunflowerit/odoosync/blob/master/examples>`_
 
 Usage
 =====
