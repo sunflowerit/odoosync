@@ -18,4 +18,4 @@ models:
   domain: [['is_company', '=', True], ['company_id', '=', 2]]
   excluded_fields:
   - 'signup_url'
-
+  context: {'active_test': False}
