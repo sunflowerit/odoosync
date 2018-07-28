@@ -81,8 +81,9 @@ target_odoo = odoo_login(target)
 source_odoo.config['timeout'] = 600
 instance = ModelSyncer(source_odoo, target_odoo, manual_mapping=manual_mapping)
 new_timestamp = instance.get_timestamp()
+instance.prepare(models, since=old_timestamp)
 for model in models:
-    instance.sync(model, since=old_timestamp)
+    instance.sync(model)
 with open(timestampfile, 'w') as _file:
     _file.write(new_timestamp)
 
