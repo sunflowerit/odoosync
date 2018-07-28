@@ -51,8 +51,11 @@ class ModelSyncer():
             for r in dest_external_records:
                 model = r['model']
                 dest_id = r['res_id']
-                source_id = int(str(r['name'].split('.')[-1]).split('_')[-1])
-                self._add_dest_id(model, source_id, dest_id)
+                try:
+                    source_id = int(str(r['name'].split('.')[-1]).split('_')[-1])
+                    self._add_dest_id(model, source_id, dest_id)
+                except ValueError:
+                    pass
 
     def _find_dest_id(self, model, source_id):
         return source_id and self.dest_trans.get(model, {}).get(source_id, {})
