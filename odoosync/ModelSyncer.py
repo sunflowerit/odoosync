@@ -1,8 +1,18 @@
+import logging
 import odoorpc
 import sys
 import time
 from collections import OrderedDict, defaultdict
 from pprint import pprint
+
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 
 DEFAULT_EXCLUDED_FIELDS = [
@@ -17,12 +27,6 @@ DEFAULT_EXCLUDED_FIELDS = [
 
 class ModelSyncer():
 
-    def _log(self, text, cr=True):
-        print text,
-        if cr:
-            print
-        sys.stdout.flush()
-
     def __init__(self, source, dest, manual_mapping=None):
         self.manual_mapping = manual_mapping or {}
         self.source = source
@@ -34,20 +38,24 @@ class ModelSyncer():
     def _get_proper_name(self, model, _id):
         return u'{}_{}'.format(model.replace('.', '_'), _id)
 
-    def _load_records(self, _struct):
+    def _load_records(self, _struct, extra_fields=None):
         """ Loads records from a {'model.name': [id, id, id]} format """
         loaded = defaultdict(list)
         for model, _ids in _struct.iteritems():
-            self._log(u'Reading {} {} records from source server...'.format(
-                len(_ids), model))
-            model_fields = self._fields_struct.get(model, [])
-            source_obj = self.source.env[model]
-            records = source_obj.browse(_ids).with_context({
-                'mail_create_nosubscribe': True
-            }).read(model_fields)
-            self._source_records[model].extend(records)
-            loaded[model].extend(records)
-            self._source_record_ids[model].update(set(r['id'] for r in records))
+            if _ids:
+                logger.info(u'Reading {} {} records from source server...'.format(
+                    len(_ids), model))
+                model_fields = self._fields_struct.get(model, [])
+                source_obj = self.source.env[model]
+                records = source_obj.browse(_ids).with_context({
+                    'mail_create_nosubscribe': True
+                }).read(model_fields)
+                if extra_fields:
+                    for record in records:
+                        record.update(extra_fields)
+                self._source_records[model].extend(records)
+                loaded[model].extend(records)
+                self._source_record_ids[model].update(set(r['id'] for r in records))
         return loaded
 
     def _create_dest_mapping(self):
@@ -89,23 +97,23 @@ class ModelSyncer():
         for field, rel_model in self._many2one_fields.get(model, {}).iteritems():
             source_id = data.get(field) and data.get(field)[0]
             if source_id:
-                self._log("Translating {}[{}]...".format(rel_model, source_id), cr=False)
+                logger.debug("Translating {}[{}]...".format(rel_model, source_id))
                 dest_id = self._find_dest_id(rel_model, source_id)
                 if dest_id:
-                    self._log(str(dest_id))
+                    logger.debug(str(dest_id))
                     vals[field] = dest_id
                 else:
                     dest_id = self.manual_mapping.get(rel_model, {}).get(source_id)
-                    self._log(str(dest_id))
+                    logger.debug(str(dest_id))
                     if dest_id:
                         vals[field] = dest_id
                     else:
-                        self._log('Mapping failed: consider adding manual mapping for record {}[{}]'.format(
+                        logger.warning('Mapping failed: consider adding manual mapping for record {}[{}]'.format(
                             rel_model, source_id))
                         vals[field] = None
         return vals
 
-    def _write_or_create_model_record(self, model, vals, source_id):
+    def _write_or_create_model_record(self, model, vals, source_id, noupdate=False):
         dest_id = self._find_dest_id(model, source_id)
         proper_name = self._prefix + self._get_proper_name(model, source_id)
         if not dest_id:
@@ -114,8 +122,8 @@ class ModelSyncer():
             if record:
                 dest_id = record[0]
                 self._add_dest_id(model, source_id, dest_id)
-        if dest_id:
-            self._log(u'updating record {}[{}] from source {}'.format(model, dest_id, source_id))
+        if dest_id and not noupdate:
+            logger.info(u'updating record {}[{}] from source {}'.format(model, dest_id, source_id))
             try:
                 record = self.dest.env[model].write(dest_id, vals)
             except odoorpc.error.RPCError:
@@ -123,9 +131,9 @@ class ModelSyncer():
                 record = self.dest_ir_model_obj.search([('name', '=', proper_name)])
                 self.dest_ir_model_obj.unlink(record)
         if not dest_id:
-            self._log(u'creating record from source {}[{}]..'.format(model, source_id), cr=False)
+            logger.info(u'creating record from source {}[{}]..'.format(model, source_id))
             dest_id = self.dest.env[model].create(vals)
-            self._log(str(dest_id))
+            logger.info(str(dest_id))
             self._add_dest_id(model, source_id, dest_id)
             self.dest_ir_model_obj.create({
                 'model': model,
@@ -135,12 +143,14 @@ class ModelSyncer():
 
     def _sync_one_model(self, model):
         source_records = self._source_records.get(model, [])
-        self._log(u'Writing {} {} records to target server...'.format(
+        logger.debug(u'Totally {} {} records considered for sync...'.format(
             len(source_records), model))
         for source_record in source_records:
             source_id = source_record['id']
+            noupdate = bool(source_record.get('__sfit_dep'))
             mapped = self._map_fields(model, source_record)
-            self._write_or_create_model_record(model, mapped, source_id)
+            self._write_or_create_model_record(
+                model, mapped, source_id, noupdate=noupdate)
 
     def _load_dependencies_of_records(self, model, records):
         dep_struct = defaultdict(set)
@@ -151,7 +161,8 @@ class ModelSyncer():
                 existing_records = self._source_record_ids.get(rel_model, [])
                 if source_id and source_id not in existing_records:
                     dep_struct[rel_model].add(source_id)
-        for _model, _records in self._load_records(dep_struct).iteritems():
+        for _model, _records in self._load_records(dep_struct,
+                extra_fields={'__sfit_dep': True}).iteritems():
             self._load_dependencies_of_records(_model, _records)
 
     def prepare(self, model_dicts, since=None):
@@ -167,10 +178,10 @@ class ModelSyncer():
             model = model_dict.get('model')
             self.source.env.context.update(context)
             self.dest.env.context.update(context)
-            self._log(u'Preparing sync of model {}'.format(model))
+            logger.info(u'Preparing sync of model {}'.format(model))
 
             # Determine which fields to sync exactly, per model
-            self._log("Determining which fields to sync...")
+            logger.debug("Determining which fields to sync...")
             excluded_fields = model_dict.get('excluded_fields')
             excluded_fields_set = set(excluded_fields or []).union(
                 set(DEFAULT_EXCLUDED_FIELDS))
@@ -195,7 +206,7 @@ class ModelSyncer():
             source_obj = self.source.env[model]
             if since:
                 domain.append(('write_date', '>', since))
-            self._log(u'Searching which records satisfy: {}'.format(domain))
+            logger.info(u'Searching: {}'.format(domain))
             _ids = source_obj.search(domain or [])
             self._load_records({model: _ids})
 
@@ -203,7 +214,7 @@ class ModelSyncer():
         self._depends_struct = defaultdict(set)  # dependent records per model
         for model_dict in model_dicts:
             model = model_dict.get('model')
-            self._log(u'Determine dependent records for {}...'.format(model))
+            logger.info(u'Determine dependent records for {}...'.format(model))
             records = self._source_records.get(model, [])
             self._load_dependencies_of_records(model, records)
 
@@ -212,7 +223,7 @@ class ModelSyncer():
             model = model_dict.get('model')
             records = self._source_records.get(model, [])
             if records and 'parent_id' in records[0].keys():
-                self._log(u'Sorting records according to parent-child hierarchy...')
+                logger.info(u'Sorting records according to parent-child hierarchy...')
                 def _sort(todo, ids_done):
                     done = []
                     more_ids_done = []
@@ -234,9 +245,8 @@ class ModelSyncer():
                 source_records = records
             self._source_records[model] = source_records
 
-        self._log("Creating a mapping of ids of already synced records from target server...", cr=False)
+        logger.info("Creating a mapping of ids of already synced records from target server...")
         self._create_dest_mapping()
-        self._log("done")
 
     def sync(self, model_dict):
         model = model_dict.get('model')
