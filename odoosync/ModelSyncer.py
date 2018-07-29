@@ -1,7 +1,10 @@
 import logging
+import netrc
 import odoorpc
+import ssl
 import sys
 import time
+import urllib2
 from collections import OrderedDict, defaultdict
 from pprint import pprint
 
@@ -24,78 +27,153 @@ DEFAULT_EXCLUDED_FIELDS = [
     'write_uid'
 ]
 
+class SyncException(Exception):
+    pass
+
+
+class OdooInstance():
+    """ Abstraction of an Odoo Instance """
+
+    def __init__(self, odoo_instance):
+        opener = False
+        protocol = 'jsonrpc'
+
+        if odoo_instance.get('ssl', None):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
+            protocol = 'jsonrpc+ssl'
+
+        self.host = odoo_instance.get('host')
+        self.port = odoo_instance.get('port')
+        self.database = odoo_instance.get('database')
+        self.odoo = odoorpc.ODOO(
+            self.host,
+            port=self.port,
+            opener=opener,
+            protocol=protocol
+        )
+        self._login()
+        self.ir_model_obj = self.odoo.env['ir.model.data']
+        self._get_timestamp()
+
+    def _login(self):
+        # get login details from netRC file
+        try:
+            netrc_info = netrc.netrc()
+        except IOError:
+            raise SyncException(self.host)
+        auth_info = netrc_info.authenticators(self.host)
+        if not auth_info:
+            raise SyncException(self.host)
+        username, host2, password = auth_info
+        logger.info("Connecting to host={}, database={}, user={}".format(
+            self.host, self.database, username))
+        self.odoo.login(self.database, username, password)
+
+    def _get_timestamp(self):
+        obj = self.ir_model_obj
+        dummy_record_id = obj.create({
+            'model': 'res.users',
+            'module': '__sfit_export_internals',
+            'name': '__sfit_timestamp_{}'.format(int(time.time())),
+            'res_id': self.odoo.env.uid
+        })
+        dummy_record = obj.read([dummy_record_id])
+        self.timestamp = dummy_record[0]['create_date']
+        obj.unlink(dummy_record_id)
+
+
+class OdooModel():
+    """ Abstraction of an Odoo model """
+
+    def __init__(self, model_dict):
+        self.fields = []
+        self.many2onefields = {}
+        self.source_records = []
+        self.source_record_ids = set()
+        self.name = model_dict.get('model')
+        self.domain = model_dict.get('domain', [])
+        self.context = model_dict.get('context', {})
+        excluded_fields = model_dict.get('excluded_fields')
+        self.excluded_fields = set(excluded_fields or []).union(
+            set(DEFAULT_EXCLUDED_FIELDS))
+
+    def load_recs(self, odoo, _ids, dep=False):
+        """ Loads extra records: [id, id, id...] """
+        loaded = []
+        if _ids:
+            logger.info(u'Reading {} {} records from source server...'.format(
+                len(_ids), self.name))
+            source_obj = odoo.env[self.name]
+            records = source_obj.browse(_ids).with_context({
+                'mail_create_nosubscribe': True
+            }).read(self.fields)
+            if dep:
+                for record in records:
+                    record.update({'__sfit_dep': True})
+            self.source_records.extend(records)
+            loaded.extend(records)
+            self.source_record_ids.update(set(r['id'] for r in records))
+        return loaded
+
 
 class ModelSyncer():
+    """ Syncer instance """ 
 
-    def __init__(self, source, dest, manual_mapping=None):
-        self.manual_mapping = manual_mapping or {}
-        self.source = source
-        self.dest = dest
-        self.source_ir_fields = source.env['ir.model.fields']
-        self.source_ir_model_obj = source.env['ir.model.data']
-        self.dest_ir_model_obj = dest.env['ir.model.data']
-        self._prefix = '__export_sfit__.'
+    def __init__(self, _struct, _timestamps):
+        self.manual_mapping = _struct.get('manual_mapping', {})
+        self.source_timestamp = _timestamps.get('source')
+        self.dest_timestamp = _timestamps.get('target')
+        self.source = OdooInstance(_struct.get('source', {}))
+        self.dest = OdooInstance(_struct.get('target', {}))
+        self.source_ir_fields = self.source.odoo.env['ir.model.fields']
+        self.options = _struct.get('options', {})
+        self.dry_run = self.options.get('dry_run')
+        self.models = [OdooModel(m) for m in _struct.get('models', {})]
+        self.models_by_name = dict((m.name, m) for m in self.models)
+        self.prefix = self.options.get(
+            'prefix', '__export_sfit__').rstrip('.')
+        timeout = self.options.get('timeout', 600)
+        self.source.odoo.config['timeout'] = timeout
+        self.dest.odoo.config['timeout'] = timeout
 
-    def _get_proper_name(self, model, _id):
-        return u'{}_{}'.format(model.replace('.', '_'), _id)
-
-    def _load_records(self, _struct, extra_fields=None):
-        """ Loads records from a {'model.name': [id, id, id]} format """
-        loaded = defaultdict(list)
-        for model, _ids in _struct.iteritems():
-            if _ids:
-                logger.info(u'Reading {} {} records from source server...'.format(
-                    len(_ids), model))
-                model_fields = self._fields_struct.get(model, [])
-                source_obj = self.source.env[model]
-                records = source_obj.browse(_ids).with_context({
-                    'mail_create_nosubscribe': True
-                }).read(model_fields)
-                if extra_fields:
-                    for record in records:
-                        record.update(extra_fields)
-                self._source_records[model].extend(records)
-                loaded[model].extend(records)
-                self._source_record_ids[model].update(set(r['id'] for r in records))
-        return loaded
+    def _get_xmlid(self, model_name, _id):
+        return u'{}_{}'.format(model_name.replace('.', '_'), _id)
 
     def _create_dest_mapping(self):
         # Create a translation dict for dest_record_id -> source record id
         self.dest_trans = defaultdict(dict)
-        proper_names = []
-        for model, source_ids in self._source_record_ids.iteritems():
-            for source_id in list(source_ids):
-                proper_names.append(
-                    self._prefix +
-                    self._get_proper_name(model, source_id)
-                )
-        dest_external_ids = self.dest_ir_model_obj.search([
-            ('name', 'in', proper_names)
+        xmlids = []
+        for model in self.models:
+            for source_id in list(model.source_record_ids):
+                xmlids.append(self._get_xmlid(model.name, source_id))
+        dest_external_ids = self.dest.ir_model_obj.search([
+            ('name', 'in', xmlids),
+            ('module', '=', self.prefix)
         ])
-        dest_external_records = self.dest_ir_model_obj.browse(
+        dest_external_records = self.dest.ir_model_obj.browse(
             dest_external_ids
         ).read(['name', 'model', 'res_id'])
         for r in dest_external_records:
-            model = r['model']
+            model_name = r['model']
             dest_id = r['res_id']
             try:
                 source_id = int(str(r['name'].split('.')[-1]).split('_')[-1])
-                self._add_dest_id(model, source_id, dest_id)
+                self._add_dest_id(model_name, source_id, dest_id)
             except ValueError:
                 pass
 
-    def _find_dest_id(self, model, source_id):
-        return source_id and self.dest_trans.get(model, {}).get(source_id, {})
+    def _find_dest_id(self, model_name, source_id):
+        return source_id and self.dest_trans.get(model_name, {}).get(source_id, {})
 
-    def _add_dest_id(self, model, source_id, dest_id):
-        self.dest_trans[model][source_id] = dest_id
-
-    def _get_proper_name(self, model, id):
-        return u'{}_{}'.format(model.replace('.', '_'), id)
+    def _add_dest_id(self, model_name, source_id, dest_id):
+        self.dest_trans[model_name][source_id] = dest_id
 
     def _map_fields(self, model, data):
         vals = data.copy()
-        for field, rel_model in self._many2one_fields.get(model, {}).iteritems():
+        for field, rel_model in model.many2onefields.iteritems():
             source_id = data.get(field) and data.get(field)[0]
             if source_id:
                 logger.debug("Translating {}[{}]...".format(rel_model, source_id))
@@ -115,38 +193,47 @@ class ModelSyncer():
         return vals
 
     def _write_or_create_model_record(self, model, vals, source_id, noupdate=False):
-        dest_id = self._find_dest_id(model, source_id)
-        proper_name = self._prefix + self._get_proper_name(model, source_id)
+        dest_id = self._find_dest_id(model.name, source_id)
+        xmlid = self._get_xmlid(model.name, source_id)
         if not dest_id:
             # double check
-            record = self.dest_ir_model_obj.search([('name', '=', proper_name)])
+            record = self.dest.ir_model_obj.search([
+                ('module', '=', self.prefix),
+                ('name', '=', xmlid),
+            ])
             if record:
                 dest_id = record[0]
-                self._add_dest_id(model, source_id, dest_id)
+                self._add_dest_id(model.name, source_id, dest_id)
         if dest_id and not noupdate:
-            logger.info(u'updating record {}[{}] from source {}'.format(model, dest_id, source_id))
+            logger.info(u'updating record {}[{}] from source {}'.format(
+                model.name, dest_id, source_id))
             try:
-                record = self.dest.env[model].write(dest_id, vals)
+                if not self.dry_run:
+                    record = self.dest.odoo.env[model.name].write(dest_id, vals)
             except odoorpc.error.RPCError:
                 dest_id = None
-                record = self.dest_ir_model_obj.search([('name', '=', proper_name)])
-                self.dest_ir_model_obj.unlink(record)
+                record = self.dest.ir_model_obj.search([
+                    ('module', '=', self.prefix),
+                    ('name', '=', xmlid)
+                ])
+                self.dest.ir_model_obj.unlink(record)
         if not dest_id:
-            logger.info(u'creating record from source {}[{}]..'.format(model, source_id))
-            dest_id = self.dest.env[model].create(vals)
-            logger.info(str(dest_id))
-            self._add_dest_id(model, source_id, dest_id)
-            self.dest_ir_model_obj.create({
-                'model': model,
-                'name': proper_name,
-                'res_id': dest_id,
-            })
+            logger.info(u'creating record from source {}[{}]..'.format(
+                model.name, source_id))
+            if not self.dry_run:
+                dest_id = self.dest.odoo.env[model.name].create(vals)
+                logger.info(str(dest_id))
+                self._add_dest_id(model.name, source_id, dest_id)
+                self.dest.ir_model_obj.create({
+                    'model': model.name,
+                    'name': xmlid,
+                    'res_id': dest_id,
+                })
 
     def _sync_one_model(self, model):
-        source_records = self._source_records.get(model, [])
         logger.debug(u'Totally {} {} records considered for sync...'.format(
-            len(source_records), model))
-        for source_record in source_records:
+            len(model.source_records), model.name))
+        for source_record in model.source_records:
             source_id = source_record['id']
             noupdate = bool(source_record.get('__sfit_dep'))
             mapped = self._map_fields(model, source_record)
@@ -155,38 +242,26 @@ class ModelSyncer():
 
     def _load_dependencies_of_records(self, model, records):
         dep_struct = defaultdict(set)
-        many2onefields = self._many2one_fields.get(model, {})
         for record in records:
-            for field, rel_model in many2onefields.iteritems():
+            for field, rel_model in model.many2onefields.iteritems():
                 source_id = record.get(field) and record.get(field)[0]
-                existing_records = self._source_record_ids.get(rel_model, [])
-                if source_id and source_id not in existing_records:
+                if source_id and source_id not in model.source_record_ids:
                     dep_struct[rel_model].add(source_id)
-        for _model, _records in self._load_records(dep_struct,
-                extra_fields={'__sfit_dep': True}).iteritems():
-            self._load_dependencies_of_records(_model, _records)
+        for _model_name, _ids in dep_struct.iteritems():
+            if _model_name in self.models_by_name:
+                _model = self.models_by_name[_model_name]
+                _records = _model.load_recs(self.source.odoo, _ids, dep=True)
+                self._load_dependencies_of_records(_model, _records)
+            else:
+                logger.debug('Ignoring {} {} records', len(_ids), _model_name)
 
-    def prepare(self, model_dicts, since=None):
-        self._fields_struct = defaultdict(list)
-        self._many2one_fields = defaultdict(dict)
-        self._source_records = defaultdict(list)
-        self._source_record_ids = defaultdict(set)
-        self._depends_struct = defaultdict(set)  # dependent records per model
-
-        for model_dict in model_dicts:
-            domain = model_dict.get('domain', [])
-            context = model_dict.get('context', {})
-            model = model_dict.get('model')
-            self.source.env.context.update(context)
-            self.dest.env.context.update(context)
+    def prepare(self):
+        for model in self.models:
             logger.info(u'Preparing sync of model {}'.format(model))
 
             # Determine which fields to sync exactly, per model
             logger.debug("Determining which fields to sync...")
-            excluded_fields = model_dict.get('excluded_fields')
-            excluded_fields_set = set(excluded_fields or []).union(
-                set(DEFAULT_EXCLUDED_FIELDS))
-            fields = self.source_ir_fields.search([('model', '=', model)])
+            fields = self.source_ir_fields.search([('model', '=', model.name)])
             fields_info = self.source_ir_fields.browse(fields).read([])
             for field in fields_info:
                 name = field.get('name')
@@ -197,32 +272,31 @@ class ModelSyncer():
                 if readonly:
                     continue
                 # Skip excluded fields, one2many fields, many2many fields
-                if name in excluded_fields_set or (relation and ttype != 'many2one'):
+                if name in model.excluded_fields or (relation and ttype != 'many2one'):
                     continue
-                self._fields_struct[model].append(name)
+                model.fields.append(name)
                 if relation and ttype == 'many2one':
-                    self._many2one_fields[model][name] = relation
+                    model.many2onefields[name] = relation
 
             # Fetch source records
-            source_obj = self.source.env[model]
-            if since:
-                domain.append(('write_date', '>', since))
+            source_obj = self.source.odoo.env[model.name]
+            domain = model.domain
+            if self.source_timestamp:
+                domain.append(('write_date', '>', self.source_timestamp))
             logger.info(u'Searching: {}'.format(domain))
+            self.source.odoo.context = model.context
             _ids = source_obj.search(domain or [])
-            self._load_records({model: _ids})
+            model.load_recs(self.source.odoo, _ids)
 
         # determine dependencies
-        self._depends_struct = defaultdict(set)  # dependent records per model
-        for model_dict in model_dicts:
-            model = model_dict.get('model')
-            logger.info(u'Determine dependent records for {}...'.format(model))
-            records = self._source_records.get(model, [])
+        for model in self.models:
+            logger.info(u'Determine dependent records for {}...'.format(model.name))
+            records = model.source_records
             self._load_dependencies_of_records(model, records)
 
         # Sort records so that parents always come before children
-        for model_dict in model_dicts:
-            model = model_dict.get('model')
-            records = self._source_records.get(model, [])
+        for model in self.models:
+            records = model.source_records
             if records and 'parent_id' in records[0].keys():
                 logger.info(u'Sorting records according to parent-child hierarchy...')
                 def _sort(todo, ids_done):
@@ -244,23 +318,18 @@ class ModelSyncer():
                 source_records = _sort(records, [])
             else:
                 source_records = records
-            self._source_records[model] = source_records
+            model.source_records = source_records
 
         logger.info("Creating a mapping of ids of already synced records from target server...")
         self._create_dest_mapping()
 
-    def sync(self, model_dict):
-        model = model_dict.get('model')
-        self._sync_one_model(model)
+    def sync(self):
+        for model in self.models:
+            self._sync_one_model(model)
 
-    def get_timestamp(self):
-        obj = self.source_ir_model_obj
-        dummy_record_id = obj.create({
-            'model': 'res.user',
-            'name': '__sfit_timestamp_{}'.format(int(time.time())),
-            'res_id': self.dest.env.uid
-        })
-        timestamp = obj.read(dummy_record_id)[0]['create_date']
-        obj.unlink(dummy_record_id)
-        return timestamp
- 
+    def get_new_timestamps(self):
+        if not self.dry_run:
+            return {
+                'source': self.source.timestamp,
+                'target': self.dest.timestamp
+            }

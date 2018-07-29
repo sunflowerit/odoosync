@@ -1,89 +1,46 @@
 #!/usr/bin/env python
 
 import argparse
-import netrc
-import odoorpc
 import os
-import ssl
 import sys
-import urllib2
 import yaml
 
-from odoosync.ModelSyncer import ModelSyncer
+from odoosync.ModelSyncer import ModelSyncer, SyncException
 
 
 def helptext(host):
     print "In your $HOME/.netrc file place:"
-    print "machine {} login myuser password mypassword".format(host)
+    print "machine odoo.example.com login myuser password mypassword"
     sys.exit(0)
 
 
-def odoo_login(odoo_instance):
-    opener = False
-    protocol = 'jsonrpc'
-
-    if odoo_instance.get('ssl', None):
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        opener = urllib2.build_opener(urllib2.HTTPSHandler(context=ctx))
-        protocol = 'jsonrpc+ssl'
-
-    host = odoo_instance.get('host')
-    port = odoo_instance.get('port')
-    database = odoo_instance.get('database')
-    instance = odoorpc.ODOO(
-        host,
-        port=port,
-        opener=opener,
-        protocol=protocol
-    )
-
-    # get login details from netRC file
-    try:
-        netrc_info = netrc.netrc()
-    except IOError:
-        helptext(host) 
-    auth_info = netrc_info.authenticators(host)
-    if not auth_info:
-        helptext(host)
-        print "In your $HOME/.netrc file place:"
-        print "machine {} login myuser password mypassword".format(host)
-        sys.exit(0)
-    username, host2, password = auth_info
-    print "Connecting to host={}, database={}, user={}".format(
-        host, database, username)
-    instance.login(database, username, password)
-    return instance
-
+# Open YAML file
 parser = argparse.ArgumentParser()
 parser.add_argument('yamlfile')
 args = parser.parse_args()
 yamlfile = args.yamlfile
-timestampfile = os.path.splitext(yamlfile)[0] + '.timestamp'
-
+_struct = {}
 with open(yamlfile, 'r') as _file:
-    _dict = yaml.load(_file)
-    source = _dict.get('source')
-    target = _dict.get('target')
-    manual_mapping = _dict.get('manual_mapping')
-    models = _dict.get('models')
+    _struct = yaml.load(_file)
 
-old_timestamp = None
+# Open timestamp file
+timestampfile = os.path.splitext(yamlfile)[0] + '.timestamp'
+_timestamps = {}
 try:
     with open(timestampfile, 'r') as _file:
-        old_timestamp = _file.read()
+        _timestamps = yaml.load(_file)
 except IOError:
     pass
 
-source_odoo = odoo_login(source)
-target_odoo = odoo_login(target)
-source_odoo.config['timeout'] = 600
-instance = ModelSyncer(source_odoo, target_odoo, manual_mapping=manual_mapping)
-new_timestamp = instance.get_timestamp()
-instance.prepare(models, since=old_timestamp)
-for model in models:
-    instance.sync(model)
-with open(timestampfile, 'w') as _file:
-    _file.write(new_timestamp)
+# Sync
+try:
+    instance = ModelSyncer(_struct, _timestamps)
+except SyncException as e:
+    helptext(e.args[0])
+instance.prepare()
+instance.sync()
+_timestamps = instance.get_new_timestamps()
+if _timestamps:
+    with open(timestampfile, 'w') as _file:
+        yaml.dump(_timestamps, _file)
 
