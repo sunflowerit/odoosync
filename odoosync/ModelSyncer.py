@@ -240,19 +240,6 @@ class ModelSyncer():
             self._write_or_create_model_record(
                 model, mapped, source_id, noupdate=noupdate)
 
-    #def _load_dependencies_of_records(self, model, records):
-    #    dep_struct = defaultdict(set)
-    #    many2onefields = self._many2one_fields.get(model, {})
-    #    for record in records:
-    #        for field, rel_model in many2onefields.iteritems():
-    #            source_id = record.get(field) and record.get(field)[0]
-    #            existing_records = self._source_record_ids.get(rel_model, [])
-    #            if source_id and source_id not in existing_records:
-    #                dep_struct[rel_model].add(source_id)
-    #    for _model, _records in self._load_records(dep_struct,
-    #            extra_fields={'__sfit_dep': True}).iteritems():
-    #        self._load_dependencies_of_records(_model, _records)
-
     def _load_dependencies_of_records(self, model, records):
         dep_struct = defaultdict(set)
         for record in records:
