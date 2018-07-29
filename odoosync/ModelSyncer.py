@@ -9,13 +9,13 @@ from collections import OrderedDict, defaultdict
 from pprint import pprint
 
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 ch = logging.StreamHandler(sys.stdout)
-ch.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
+logger.setLevel(logging.INFO)
+ch.setLevel(logging.INFO)
 
 
 DEFAULT_EXCLUDED_FIELDS = [
@@ -96,9 +96,9 @@ class OdooModel():
         self.name = model_dict.get('model')
         self.domain = model_dict.get('domain', [])
         self.context = model_dict.get('context', {})
-        excluded_fields = model_dict.get('excluded_fields')
-        self.excluded_fields = set(excluded_fields or []).union(
-            set(DEFAULT_EXCLUDED_FIELDS))
+        self.excluded_fields = set(model_dict.get('excluded_fields', [])) \
+            .union(set(DEFAULT_EXCLUDED_FIELDS))
+        self.included_fields = set(model_dict.get('included_fields', []))
 
     def load_recs(self, odoo, _ids, dep=False):
         """ Loads extra records: [id, id, id...] """
@@ -123,14 +123,20 @@ class ModelSyncer():
     """ Syncer instance """ 
 
     def __init__(self, _struct, _timestamps):
+        self.options = _struct.get('options', {})
+        self.dry_run = self.options.get('dry_run')
+        self.debug = self.options.get('debug')
+        
+        if self.debug:
+            logger.setLevel(logging.DEBUG)
+            ch.setLevel(logging.DEBUG)
+        logger.debug('Created ModelSyncer instance...')
         self.manual_mapping = _struct.get('manual_mapping', {})
         self.source_timestamp = _timestamps.get('source')
         self.dest_timestamp = _timestamps.get('target')
         self.source = OdooInstance(_struct.get('source', {}))
         self.dest = OdooInstance(_struct.get('target', {}))
         self.source_ir_fields = self.source.odoo.env['ir.model.fields']
-        self.options = _struct.get('options', {})
-        self.dry_run = self.options.get('dry_run')
         self.models = [OdooModel(m) for m in _struct.get('models', {})]
         self.models_by_name = dict((m.name, m) for m in self.models)
         self.prefix = self.options.get(
@@ -173,22 +179,23 @@ class ModelSyncer():
 
     def _map_fields(self, model, data):
         vals = data.copy()
-        for field, rel_model in model.many2onefields.iteritems():
+        for field, rel_model_name in model.many2onefields.iteritems():
             source_id = data.get(field) and data.get(field)[0]
             if source_id:
-                logger.debug("Translating {}[{}]...".format(rel_model, source_id))
-                dest_id = self._find_dest_id(rel_model, source_id)
+                logger.debug("Translating {}[{}]...".format(rel_model_name, source_id))
+                dest_id = self._find_dest_id(rel_model_name, source_id)
                 if dest_id:
                     logger.debug(str(dest_id))
                     vals[field] = dest_id
                 else:
-                    dest_id = self.manual_mapping.get(rel_model, {}).get(source_id)
+                    dest_id = self.manual_mapping.get(rel_model_name, {}).get(source_id)
                     logger.debug(str(dest_id))
                     if dest_id:
                         vals[field] = dest_id
                     else:
-                        logger.warning('Mapping failed: consider adding manual mapping for record {}[{}]'.format(
-                            rel_model, source_id))
+                        logger.warning("Mapping failed: consider adding "
+                            "manual mapping for record {}[{}]".format(
+                            rel_model_name, source_id))
                         vals[field] = None
         return vals
 
@@ -263,7 +270,10 @@ class ModelSyncer():
 
             # Determine which fields to sync exactly, per model
             logger.debug("Determining which fields to sync...")
-            fields = self.source_ir_fields.search([('model', '=', model.name)])
+            fields_domain = [('model', '=', model.name)]
+            if model.included_fields:
+                fields_domain.append(('name', 'in', list(model.included_fields)))
+            fields = self.source_ir_fields.search(fields_domain)
             fields_info = self.source_ir_fields.browse(fields).read([])
             for field in fields_info:
                 name = field.get('name')
@@ -279,6 +289,7 @@ class ModelSyncer():
                 model.fields.append(name)
                 if relation and ttype == 'many2one':
                     model.many2onefields[name] = relation
+            logger.debug("{}".format(model.fields))
 
             # Fetch source records
             source_obj = self.source.odoo.env[model.name]
