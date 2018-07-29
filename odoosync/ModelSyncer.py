@@ -95,6 +95,7 @@ class OdooModel():
         self.record_ids = set()
         self.name = model_dict.get('model')
         self.domain = model_dict.get('domain', [])
+        self.no_domain = model_dict.get('no_domain')
         self.context = model_dict.get('context', {})
         self.excluded_fields = set(model_dict.get('excluded_fields', [])) \
             .union(set(DEFAULT_EXCLUDED_FIELDS))
@@ -423,7 +424,7 @@ class ModelSyncer():
                 translate_function,
                 noupdate=noupdate)
 
-    def _load_dependencies_of_records(self, model, records):
+    def _load_dependencies_of_records(self, odoo, model, records):
         dep_struct = defaultdict(set)
         if model.reverse:
             other_models = self.reverse_models_by_name
@@ -441,8 +442,8 @@ class ModelSyncer():
                     logger.debug('Ignoring {}[{}]'.format(rel_model_name, source_id))
         for _model_name, _ids in dep_struct.iteritems():
             _model = other_models[_model_name]
-            _records = _model.load_recs(self.source.odoo, _ids, dep=True)
-            self._load_dependencies_of_records(_model, _records)
+            _records = _model.load_recs(odoo, _ids, dep=True)
+            self._load_dependencies_of_records(odoo, _model, _records)
 
     def prepare(self):
         syncs = [
@@ -459,17 +460,18 @@ class ModelSyncer():
             for model in models:
                 logger.info("Loading records for model {}...".format(model.name))
                 domain = model.domain
-                if since:
-                    domain.append(('write_date', '>', since))
-                logger.info(u'Searching: {}'.format(domain))
-                odoo.context = model.context
-                _ids = odoo.env[model.name].search(domain or [])
-                model.load_recs(odoo, _ids)
+                if not model.no_domain:
+                    if since:
+                        domain.append(('write_date', '>', since))
+                    logger.info(u'Searching: {}'.format(domain))
+                    odoo.context = model.context
+                    _ids = odoo.env[model.name].search(domain or [])
+                    model.load_recs(odoo, _ids)
 
             # Determine and load dependencies
             for model in models:
                 logger.info(u'Determine dependent records for {}...'.format(model.name))
-                self._load_dependencies_of_records(model, model.records)
+                self._load_dependencies_of_records(odoo, model, model.records)
 
             # Sort loaded records so that parents always come before children
             for model in models:
