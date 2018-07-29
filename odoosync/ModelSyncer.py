@@ -240,24 +240,39 @@ class ModelSyncer():
             self._write_or_create_model_record(
                 model, mapped, source_id, noupdate=noupdate)
 
+    #def _load_dependencies_of_records(self, model, records):
+    #    dep_struct = defaultdict(set)
+    #    many2onefields = self._many2one_fields.get(model, {})
+    #    for record in records:
+    #        for field, rel_model in many2onefields.iteritems():
+    #            source_id = record.get(field) and record.get(field)[0]
+    #            existing_records = self._source_record_ids.get(rel_model, [])
+    #            if source_id and source_id not in existing_records:
+    #                dep_struct[rel_model].add(source_id)
+    #    for _model, _records in self._load_records(dep_struct,
+    #            extra_fields={'__sfit_dep': True}).iteritems():
+    #        self._load_dependencies_of_records(_model, _records)
+
     def _load_dependencies_of_records(self, model, records):
         dep_struct = defaultdict(set)
         for record in records:
-            for field, rel_model in model.many2onefields.iteritems():
+            for field, rel_model_name in model.many2onefields.iteritems():
+                rel_model = self.models_by_name.get(rel_model_name)
                 source_id = record.get(field) and record.get(field)[0]
-                if source_id and source_id not in model.source_record_ids:
-                    dep_struct[rel_model].add(source_id)
+                if rel_model:
+                    source_id = record.get(field) and record.get(field)[0]
+                    if source_id and source_id not in rel_model.source_record_ids:
+                        dep_struct[rel_model_name].add(source_id)
+                else:
+                    logger.debug('Ignoring {}[{}]', rel_model_name, source_id)
         for _model_name, _ids in dep_struct.iteritems():
-            if _model_name in self.models_by_name:
-                _model = self.models_by_name[_model_name]
-                _records = _model.load_recs(self.source.odoo, _ids, dep=True)
-                self._load_dependencies_of_records(_model, _records)
-            else:
-                logger.debug('Ignoring {} {} records', len(_ids), _model_name)
+            _model = self.models_by_name[_model_name]
+            _records = _model.load_recs(self.source.odoo, _ids, dep=True)
+            self._load_dependencies_of_records(_model, _records)
 
     def prepare(self):
         for model in self.models:
-            logger.info(u'Preparing sync of model {}'.format(model))
+            logger.info(u'Preparing sync of model {}'.format(model.name))
 
             # Determine which fields to sync exactly, per model
             logger.debug("Determining which fields to sync...")
