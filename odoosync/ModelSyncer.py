@@ -32,6 +32,7 @@ class ModelSyncer():
         self.source = source
         self.dest = dest
         self.source_ir_fields = source.env['ir.model.fields']
+        self.source_ir_model_obj = source.env['ir.model.data']
         self.dest_ir_model_obj = dest.env['ir.model.data']
         self._prefix = '__export_sfit__.'
 
@@ -253,7 +254,7 @@ class ModelSyncer():
         self._sync_one_model(model)
 
     def get_timestamp(self):
-        obj = self.dest_ir_model_obj
+        obj = self.source_ir_model_obj
         dummy_record_id = obj.create({
             'model': 'res.user',
             'name': '__sfit_timestamp_{}'.format(int(time.time())),
