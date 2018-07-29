@@ -118,6 +118,31 @@ class OdooModel():
             self.source_record_ids.update(set(r['id'] for r in records))
         return loaded
 
+    def sort_parents_before_children(self):
+        records = self.source_records
+        if records and 'parent_id' in records[0].keys():
+            logger.info(u'Sorting {} according to parent-child hierarchy...'.format(self.name))
+            def _sort(todo, ids_done):
+                done = []
+                more_ids_done = []
+                still_todo = []
+                for _record in todo:
+                    parent_id = _record.get('parent_id')
+                    if not parent_id or parent_id in ids_done:
+                        done.append(_record)
+                        more_ids_done.append(_record['id'])
+                    else:
+                        still_todo.append(_record)
+                if more_ids_done:
+                    done.extend(_sort(still_todo, ids_done + more_ids_done))
+                else:
+                    done.extend(still_todo)
+                return done
+            source_records = _sort(records, [])
+        else:
+            source_records = records
+        self.source_records = source_records
+
 
 class ModelSyncer():
     """ Syncer instance """ 
@@ -309,29 +334,7 @@ class ModelSyncer():
 
         # Sort records so that parents always come before children
         for model in self.models:
-            records = model.source_records
-            if records and 'parent_id' in records[0].keys():
-                logger.info(u'Sorting records according to parent-child hierarchy...')
-                def _sort(todo, ids_done):
-                    done = []
-                    more_ids_done = []
-                    still_todo = []
-                    for _record in todo:
-                        parent_id = _record.get('parent_id')
-                        if not parent_id or parent_id in ids_done:
-                            done.append(_record)
-                            more_ids_done.append(_record['id'])
-                        else:
-                            still_todo.append(_record)
-                    if more_ids_done:
-                        done.extend(_sort(still_todo, ids_done + more_ids_done))
-                    else:
-                        done.extend(still_todo)
-                    return done
-                source_records = _sort(records, [])
-            else:
-                source_records = records
-            model.source_records = source_records
+            model.sort_parents_before_children()
 
         logger.info("Creating a mapping of ids of already synced records from target server...")
         self._create_dest_mapping()
