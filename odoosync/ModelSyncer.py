@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import netrc
 import odoorpc
@@ -109,9 +110,7 @@ class OdooModel():
             logger.info(u'Reading {} {} records from server...'.format(
                 len(_ids), self.name))
             source_obj = odoo.env[self.name]
-            records = source_obj.browse(_ids).with_context({
-                'mail_create_nosubscribe': True
-            }).read(self.fields)
+            records = source_obj.read(_ids, self.fields)
             if dep:
                 for record in records:
                     record.update({'__sfit_dep': True})
@@ -148,16 +147,22 @@ class OdooModel():
             sorted_records = records
         self.records = sorted_records
 
-    def determine_fields(self, odoo):
+    def determine_fields(self, odoo, dest_odoo, other_models, mapping):
         """ Determine which field to sync for this model """
         logger.debug("Determining which fields to sync for {}".format(self.name))
         source_ir_fields = odoo.env['ir.model.fields']
+        dest_ir_fields = dest_odoo.env['ir.model.fields']
         fields_domain = [('model', '=', self.name)]
         if self.included_fields:
             fields_domain.append(('name', 'in', list(self.included_fields)))
-        fields = source_ir_fields.search(fields_domain)
-        fields_info = source_ir_fields.browse(fields).read([])
-        for field in fields_info:
+        field_ids = source_ir_fields.search(fields_domain)
+        fields = source_ir_fields.read(field_ids, [])
+        dest_field_ids = dest_ir_fields.search(fields_domain)
+        dest_fields = dest_ir_fields.read(dest_field_ids, ['name'])
+        dest_field_names = [r['name'] for r in dest_fields]
+        other_model_names = set([m.name for m in other_models])
+        other_model_names = set(mapping.keys()).union(other_model_names)
+        for field in fields:
             name = field.get('name')
             relation = field.get('relation')
             ttype = field.get('ttype')
@@ -168,9 +173,19 @@ class OdooModel():
             # Skip excluded fields, one2many fields, many2many fields
             if name in self.excluded_fields or (relation and ttype != 'many2one'):
                 continue
-            self.fields.append(name)
+            # Skip fields that dont exist on dest
+            if name not in dest_field_names:
+                logger.warning("Field {}[{}] does not exist on "
+                    "destination, consider mapping to "
+                    "another field".format(self.name, name))
+                continue
             if relation and ttype == 'many2one':
+                # Skip many2one fields with a relation that we
+                # are not including in this sync
+                if relation not in other_model_names:
+                    continue
                 self.many2onefields[name] = relation
+            self.fields.append(name)
         logger.debug("{}".format(self.fields))
 
     def _map_fields(self, data, manual_mapping, find_dest_id_function):
@@ -207,6 +222,7 @@ class ModelSyncer():
         if self.debug:
             logger.setLevel(logging.DEBUG)
             ch.setLevel(logging.DEBUG)
+        logger.info('-----------START-----------')
         logger.debug('Created ModelSyncer instance...')
         self.manual_mapping = _struct.get('manual_mapping', {})
         self.reverse_manual_mapping = defaultdict(dict)
@@ -268,9 +284,8 @@ class ModelSyncer():
             ('name', 'in', xmlids),
             ('module', '=', self.prefix)
         ])
-        dest_external_records = self.dest.ir_model_obj.browse(
-            dest_external_ids
-        ).read(['name', 'model', 'res_id'])
+        dest_external_records = self.dest.ir_model_obj.read(
+            dest_external_ids, ['name', 'model', 'res_id'])
         for r in dest_external_records:
             try:
                 source_id = int(str(r['name'].split('.')[-1]).split('_')[-1])
@@ -294,9 +309,8 @@ class ModelSyncer():
                 ('model', '=', model.name),
                 ('module', '=', self.prefix)
             ])
-        dest_external_records = self.dest.ir_model_obj.browse(
-            dest_external_ids
-        ).read(['name', 'model', 'res_id'])
+        dest_external_records = self.dest.ir_model_obj.read(
+            dest_external_ids, ['name', 'model', 'res_id'])
         for r in dest_external_records:
             try:
                 source_id = int(str(r['name'].split('.')[-1]).split('_')[-1])
@@ -356,7 +370,20 @@ class ModelSyncer():
         if model:
             model.trans[dest_id] = source_id
 
-    def _write_or_create_model_record(self, 
+    def _make_hash(self, vals):
+        _hash = hashlib.md5()
+        for k, v in sorted(vals.iteritems()):
+            if k == 'id':
+                continue
+            if isinstance(v, (list, tuple)):
+                v = v[0]
+            if not v:
+                v = '___None'
+            _hash.update(unicode(v).encode('utf-8'))
+        return _hash.hexdigest()
+
+    def _write_or_create_model_record(
+            self, 
             odoo,
             model,
             vals, 
@@ -364,32 +391,48 @@ class ModelSyncer():
             find_dest_id_function,
             add_dest_id_function, 
             create_xmlid_function,
-            translate_function, noupdate=False):
+            translate_function,
+            noupdate=False):
         dest_id = find_dest_id_function(model.name, source_id)
+        logger.debug('cache {}->{} ({})'.format(
+            source_id, dest_id, model.name))
         if not dest_id:
             # double check
             dest_id = translate_function(model.name, source_id)
+            logger.debug('trans {}->{} ({})'.format(
+                source_id, dest_id, model.name))
             if dest_id:
                 add_dest_id_function(model.name, source_id, dest_id)
+        obj = odoo.odoo.env[model.name]
         if dest_id and not noupdate:
-            logger.info(u'updating record {}[{}] from source {}'.format(
-                model.name, dest_id, source_id))
-            try:
-                if not self.dry_run:
-                    record = odoo.odoo.env[model.name].write(dest_id, vals)
-            except odoorpc.error.RPCError:
-                dest_id = None
-                record_id = translate_function(model.name, source_id, get_xmlid=True)
-                if record_id:
-                    odoo.ir_model_obj.unlink(record)
+            # check if changed
+            old_vals = obj.read([dest_id], model.fields)[0]
+            if self._make_hash(old_vals) == self._make_hash(vals):
+                logger.info(u'no change: not updating {}[{}] from {}'.format(
+                    model.name, dest_id, source_id))
+            else:
+                logger.info(u'updating record {}[{}] from source {}'.format(
+                    model.name, dest_id, source_id))
+                try:
+                    if not self.dry_run:
+                        record = obj.write(dest_id, vals)
+                except odoorpc.error.RPCError as e:
+                    logger.error('Writing {}[{}] failed: {}'.format(
+                        model.name, dest_id, str(e)))
+                    # TODO: How to deal with this
         if not dest_id:
             logger.info(u'creating record from source {}[{}]..'.format(
                 model.name, source_id))
             if not self.dry_run:
-                dest_id = odoo.odoo.env[model.name].create(vals)
-                logger.info(str(dest_id))
-                add_dest_id_function(model.name, source_id, dest_id)
-                create_xmlid_function(model.name, source_id, dest_id)
+                try:
+                    dest_id = obj.create(vals)
+                    logger.info(str(dest_id))
+                    add_dest_id_function(model.name, source_id, dest_id)
+                    create_xmlid_function(model.name, source_id, dest_id)
+                except odoorpc.error.RPCError as e:
+                    logger.error('Creating {} failed: {}'.format(
+                        model.name, str(e)))
+                    # TODO: How to deal with this
 
     def _sync_one_model(self, model):
         logger.debug(u'Totally {} {} records considered for sync...'.format(
@@ -411,7 +454,9 @@ class ModelSyncer():
         for record in model.records:
             source_id = record['id']
             noupdate = bool(record.get('__sfit_dep'))
-            mapped = model._map_fields(record, self.manual_mapping,
+            mapped = model._map_fields(
+                record,
+                self.manual_mapping,
                 find_dest_id_function)
             self._write_or_create_model_record(
                 odoo,
@@ -442,19 +487,25 @@ class ModelSyncer():
                     logger.debug('Ignoring {}[{}]'.format(rel_model_name, source_id))
         for _model_name, _ids in dep_struct.iteritems():
             _model = other_models[_model_name]
-            _records = _model.load_recs(odoo, _ids, dep=True)
+            _records = _model.load_recs(odoo, list(_ids), dep=True)
             self._load_dependencies_of_records(odoo, _model, _records)
 
     def prepare(self):
         syncs = [
-            (self.source.odoo, self.source_timestamp, self.models, False),
-            (self.dest.odoo, self.dest_timestamp, self.reverse_models, True)
+            (self.source.odoo, self.dest.odoo, 
+             self.source_timestamp, self.models, False,
+             self.manual_mapping),
+            (self.dest.odoo, self.source.odoo,
+             self.dest_timestamp, self.reverse_models, True,
+             self.reverse_manual_mapping)
         ]
-        for odoo, since, models, reverse in syncs:
+        for odoo, dest_odoo, since, models, reverse, mapping in syncs:
+            logger.info("-----------PREPARE {}SYNC"
+                "----------".format("REVERSE " if reverse else ""))
             # Determine field names
             for model in models:
                 logger.info("Determine fields for model {}...".format(model.name))
-                model.determine_fields(odoo)
+                model.determine_fields(odoo, dest_odoo, models, mapping)
 
             # Load records
             for model in models:
@@ -466,6 +517,7 @@ class ModelSyncer():
                     logger.info(u'Searching: {}'.format(domain))
                     odoo.context = model.context
                     _ids = odoo.env[model.name].search(domain or [])
+                    logger.debug(u'Found: {}'.format(str(_ids)))
                     model.load_recs(odoo, _ids)
 
             # Determine and load dependencies
@@ -490,6 +542,7 @@ class ModelSyncer():
         logger.info('-----------REVERSE SYNC----------')
         for model in self.reverse_models:
             self._sync_one_model(model)
+        logger.info('-----------END-----------')
 
     def get_new_timestamps(self):
         if not self.dry_run:
