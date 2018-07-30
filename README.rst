@@ -16,6 +16,7 @@ Main features:
 * Follow many2one relations to sync dependent records
 * Manual mapping table (id - id) for records that cannot be synced
   (eg. for company ids, country records, analytic account ids...)
+* Correctly sync recursive parent_id relations
 * Exclude certain fields from sync
 * Include only certain fields in sync
 * Bidirectional sync
