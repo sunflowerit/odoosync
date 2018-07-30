@@ -2,7 +2,7 @@ source:
   host: source.example.com
   port: 443
   database: example1
-  ssl: yes
+  ssl: yes  # use HTTPS
 
 target:
   host: localhost
@@ -13,9 +13,27 @@ manual_mapping:
   res.company:
     {2: 1}
 
+options:
+  prefix: '__export_sfit__'  # Use a custom prefix for xmlids
+  dry_run: False  # Run, but dont write to target database
+  debug: True     # Show debug messages
+
 models:
-- model: 'res.partner'
-  domain: [['is_company', '=', True], ['company_id', '=', 2]]
+
+# Partner records: sync only customers belonging to our company 2
+- model: res.partner
+  domain: [['customers', '=', True], ['company_id', '=', 2]]
   excluded_fields:
-  - 'signup_url'
-  context: {'active_test': False}
+  - signup_url  # exclude a field, sync all others
+  context: {'active_test': False}  # Sync inactive partners too
+
+# Partner categories: sync only if a partner depends on it
+- model: res.partner.category
+  no_domain: True
+
+# Reverse partner sync: sync only state_id
+- model: res.partner
+  included_fields:
+  - state_id 
+  reverse: True 
+
