@@ -83,8 +83,6 @@ Known issues / Roadmap
 * In order to speed up initial sync, use Odoo's import_data or load functionality over RPC to bulk create records, instead of importing one by one
 * Investigate the use of Odoo's import functionality to resolve many2one relationships by intelligent naming of xmlids
 * Should we refactor and store external identifiers on both sides? Will make the code cleaner and probably faster
-* Optimization: dont load dependent records that are already in target system. Unless they have to be created, we dont need to know about them or their dependencies.
-* Optimization: we now read each destination record before writing, to check for any change; this could be done in bulk at the beginning 
 * Make a Javascript/PouchDB version, so that it also can be used in web applications (eg. a cool ETL tool)
 * Save loaded records and translation tables in a lock file (or in PouchDB), so that we dont have to reload from server on next sync. This could also be a case for making the syncer into a permanently running daemon
 * YAML structure could be prettier, eg.::
