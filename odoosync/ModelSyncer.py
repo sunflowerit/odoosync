@@ -188,26 +188,17 @@ class OdooModel():
             self.fields.append(name)
         logger.debug("{}".format(self.fields))
 
-    def _map_fields(self, data, manual_mapping, find_dest_id_function):
+    def _map_fields(self, data, find_dest_id_function):
         mapped = data.copy()
         for field, rel_model_name in self.many2onefields.iteritems():
             source_id = data.get(field) and data.get(field)[0]
             if source_id:
-                logger.debug("Translating {}[{}]...".format(rel_model_name, source_id))
                 dest_id = find_dest_id_function(rel_model_name, source_id)
-                if dest_id:
-                    logger.debug(str(dest_id))
-                    mapped[field] = dest_id
-                else:
-                    dest_id = manual_mapping.get(rel_model_name, {}).get(source_id)
-                    logger.debug(str(dest_id))
-                    if dest_id:
-                        mapped[field] = dest_id
-                    else:
-                        logger.warning("Mapping failed: consider adding "
-                            "manual mapping for record {}[{}]".format(
-                            rel_model_name, source_id))
-                        mapped[field] = None
+                if not dest_id:
+                    logger.warning("Mapping failed: consider adding "
+                        "manual mapping for record {}[{}]".format(
+                        rel_model_name, source_id))
+                mapped[field] = dest_id or None
         return mapped
 
 
@@ -225,10 +216,8 @@ class ModelSyncer():
         logger.info('-----------START-----------')
         logger.debug('Created ModelSyncer instance...')
         self.manual_mapping = _struct.get('manual_mapping', {})
-        self.reverse_manual_mapping = defaultdict(dict)
-        for model, _dict in self.manual_mapping.iteritems():
-            for k, v in _dict.iteritems():
-                self.reverse_manual_mapping[model][v] = k
+        self.reverse_manual_mapping = \
+            _struct.get('reverse_manual_mapping', {})
         self.source_timestamp = _timestamps.get('source')
         self.dest_timestamp = _timestamps.get('target')
         self.source = OdooInstance(_struct.get('source', {}))
@@ -351,14 +340,22 @@ class ModelSyncer():
 
     def _find_dest_id(self, model_name, source_id):
         model = self.models_by_name.get(model_name)
-        result = source_id and model and model.trans.get(source_id)
-        logger.debug("Trying to find {} {}: {} ({})".format(
-            model_name, source_id, result, bool(model)))
-        return result
+        dest_id = self.manual_mapping.get(model_name, {}).get(source_id)
+        if not dest_id:
+            dest_id = source_id and model and model.trans.get(source_id)
+        logger.debug("source {}[{}] -> dest {}[{}]".format(
+            model_name, source_id, model and model.name, dest_id))
+        return dest_id
 
     def _find_source_id(self, model_name, dest_id):
         model = self.reverse_models_by_name.get(model_name)
-        return dest_id and model and model.trans.get(dest_id)
+        source_id = self.reverse_manual_mapping.get(
+            model_name, {}).get(dest_id)
+        if not source_id:
+            source_id = dest_id and model and model.trans.get(dest_id)
+        logger.debug("dest {}[{}] -> source {}[{}]".format(
+            model_name, dest_id, model and model.name, source_id))
+        return source_id
 
     def _add_dest_id(self, model_name, source_id, dest_id):
         model = self.models_by_name.get(model_name)
@@ -456,7 +453,6 @@ class ModelSyncer():
             noupdate = bool(record.get('__sfit_dep'))
             mapped = model._map_fields(
                 record,
-                self.manual_mapping,
                 find_dest_id_function)
             self._write_or_create_model_record(
                 odoo,
@@ -471,6 +467,7 @@ class ModelSyncer():
 
     def _load_dependencies_of_records(self, odoo, model, records):
         dep_struct = defaultdict(set)
+        ignore_struct = defaultdict(set)
         if model.reverse:
             other_models = self.reverse_models_by_name
         else:
@@ -484,11 +481,13 @@ class ModelSyncer():
                     if source_id and source_id not in rel_model.record_ids:
                         dep_struct[rel_model_name].add(source_id)
                 else:
-                    logger.debug('Ignoring {}[{}]'.format(rel_model_name, source_id))
+                    ignore_struct[rel_model_name].add(source_id)
         for _model_name, _ids in dep_struct.iteritems():
             _model = other_models[_model_name]
             _records = _model.load_recs(odoo, list(_ids), dep=True)
             self._load_dependencies_of_records(odoo, _model, _records)
+        for _model_name, _ids in dep_struct.iteritems():
+            logger.debug('Ignoring {}[{}]'.format(_model_name, source_id))
 
     def prepare(self):
         syncs = [
